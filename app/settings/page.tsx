@@ -3,15 +3,17 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import RegistrationHeader from '@/components/forms/RegistrationHeader'
 import RegistrationFooter from '@/components/forms/RegistrationFooter'
 import ProfileEditForm from '@/components/forms/ProfileEditForm'
+import AppHeader from '@/components/AppHeader'
 
 export default function SettingsPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [profileData, setProfileData] = useState<any>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [firstName, setFirstName] = useState('User')
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -46,6 +48,10 @@ export default function SettingsPage() {
 
       console.log('✅ User authenticated:', user.id)
       setUserEmail(user.email || null)
+      
+      // Set firstName from user metadata
+      const name = user.user_metadata?.first_name || user.email?.split('@')[0] || 'User'
+      setFirstName(name)
 
       // Load profile
       const { data: profile, error: profileError } = await (supabase
@@ -78,6 +84,11 @@ export default function SettingsPage() {
       }
 
       console.log('✅ Profile loaded:', profile)
+      
+      // Set avatar URL if available
+      if (profile?.avatar_url) {
+        setAvatarUrl(profile.avatar_url)
+      }
 
       // Load interests
       const { data: interests, error: interestsError } = await (supabase
@@ -158,7 +169,7 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#FAF6F0' }}>
-      <RegistrationHeader />
+      <AppHeader firstName={firstName} avatarUrl={avatarUrl} showHome={true} />
       <div className="flex-1 py-8">
         <ProfileEditForm 
           initialData={profileData} 

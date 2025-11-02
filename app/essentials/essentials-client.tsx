@@ -5,6 +5,7 @@ import Link from 'next/link'
 import RegistrationFooter from '@/components/forms/RegistrationFooter'
 import GemeindeRegistrationInfobox from './gemeinde-registration-infobox'
 import { getMunicipalityUrl } from '@/lib/municipality-urls'
+import AppHeader from '@/components/AppHeader'
 
 interface EssentialsClientProps {
   firstName: string
@@ -672,47 +673,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#FAF6F0' }}>
       {/* Header */}
-      <header className="w-full" style={{ backgroundColor: '#2D5016' }}>
-        <div className="flex items-center justify-between px-6 py-4">
-          {/* Back to Home Button */}
-          <Link
-            href="/"
-            className="flex items-center gap-2 text-white hover:opacity-90 transition-opacity font-medium"
-          >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-              <polyline points="9 22 9 12 15 12 15 22" />
-            </svg>
-            <span>Home</span>
-          </Link>
-          {/* Profile Picture */}
-          <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white">
-            {avatarUrl ? (
-              <img
-                src={avatarUrl}
-                alt={`${firstName}'s profile`}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div
-                className="w-full h-full flex items-center justify-center text-white font-bold text-lg"
-                style={{ backgroundColor: '#C85C1A' }}
-              >
-                {firstName.charAt(0).toUpperCase()}
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
+      <AppHeader firstName={firstName} avatarUrl={avatarUrl} showHome={true} />
 
       {/* Main Content */}
       <div className="flex-1 flex gap-6 px-6 py-8">

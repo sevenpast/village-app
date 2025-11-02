@@ -1,9 +1,7 @@
 'use client'
 
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import RegistrationFooter from '@/components/forms/RegistrationFooter'
+import AppHeader from '@/components/AppHeader'
 
 interface DashboardClientProps {
   firstName: string
@@ -11,18 +9,6 @@ interface DashboardClientProps {
 }
 
 export default function DashboardClient({ firstName, avatarUrl }: DashboardClientProps) {
-  const router = useRouter()
-  const supabase = createClient()
-
-  const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut()
-      router.push('/login')
-      router.refresh()
-    } catch (error) {
-      console.error('Logout error:', error)
-    }
-  }
   // Initial values (all start at 0)
   const essentialsProgress = 0
   const connectProgress = 0
@@ -35,48 +21,7 @@ export default function DashboardClient({ firstName, avatarUrl }: DashboardClien
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#FAF6F0' }}>
       {/* Header */}
-      <header className="w-full" style={{ backgroundColor: '#2D5016' }}>
-        <div className="flex items-center justify-between px-6 py-4">
-          {/* Logo removed */}
-          <div className="flex items-center">
-          </div>
-          {/* Profile Picture & Settings */}
-          <div className="flex flex-col items-end gap-2">
-            <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white">
-              {avatarUrl ? (
-                <img
-                  src={avatarUrl}
-                  alt={`${firstName}'s profile`}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div
-                  className="w-full h-full flex items-center justify-center text-white font-bold text-lg"
-                  style={{ backgroundColor: '#C85C1A' }}
-                >
-                  {firstName.charAt(0).toUpperCase()}
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-4">
-              <Link
-                href="/settings"
-                className="text-sm font-medium text-white hover:text-gray-200 underline decoration-white/80 hover:decoration-white transition-colors"
-                style={{ textUnderlineOffset: '2px' }}
-              >
-                settings
-              </Link>
-              <button
-                onClick={handleLogout}
-                className="text-sm font-medium text-white hover:text-gray-200 underline decoration-white/80 hover:decoration-white transition-colors"
-                style={{ textUnderlineOffset: '2px' }}
-              >
-                logout
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader firstName={firstName} avatarUrl={avatarUrl} showHome={false} />
 
       {/* Main Content Area */}
       <div className="flex-1 flex gap-6 px-6 py-8">
