@@ -22,6 +22,7 @@ const config: Config = {
         'village-orange': {
           DEFAULT: '#C85C1A',
           rust: '#C85C1A',
+          card: '#F2B75B', // Journey cards orange
         },
         'village-brown': {
           DEFAULT: '#8B6F47',

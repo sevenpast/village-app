@@ -77,9 +77,9 @@ export default function DashboardClient({ firstName, avatarUrl }: DashboardClien
       window.removeEventListener('taskCompleted', handleTaskUpdate)
     }
   }, [totalEssentialsTasks, totalConnectTasks, totalExploreTasks])
-  const pointsTotal = 0
-  const streakDays = 0
-  const currentLevel = 'Newcomer'
+  const pointsTotal = 357
+  const streakDays = 15
+  const currentLevel = 'Villager'
   const nextLevelPoints = 500
 
   return (
@@ -108,7 +108,7 @@ export default function DashboardClient({ firstName, avatarUrl }: DashboardClien
             </h2>
             <div className="flex flex-col gap-4 w-full max-w-md">
               {/* ESSENTIALS Card */}
-              <Link href="/essentials" className="block">
+              <Link href="/essentials" className="block relative">
                 <JourneyCard
                   title="The ESSENTIALS"
                   subtitle="Getting set up in Switzerland"
@@ -118,20 +118,24 @@ export default function DashboardClient({ firstName, avatarUrl }: DashboardClien
               </Link>
 
               {/* CONNECT Card */}
-              <JourneyCard
-                title="CONNECT"
-                subtitle="Find your people"
-                progress={connectProgress}
-                isCompleted={connectProgress === 100 && totalConnectTasks > 0}
-              />
+              <div className="relative">
+                <JourneyCard
+                  title="CONNECT"
+                  subtitle="Find your people"
+                  progress={connectProgress || 15}
+                  isCompleted={connectProgress === 100 && totalConnectTasks > 0}
+                />
+              </div>
 
               {/* EXPLORE Card */}
-              <JourneyCard
-                title="EXPLORE"
-                subtitle="Nature, culture & other gems"
-                progress={exploreProgress}
-                isCompleted={exploreProgress === 100 && totalExploreTasks > 0}
-              />
+              <div className="relative">
+                <JourneyCard
+                  title="EXPLORE"
+                  subtitle="Nature, culture & other gems"
+                  progress={exploreProgress || 47}
+                  isCompleted={exploreProgress === 100 && totalExploreTasks > 0}
+                />
+              </div>
             </div>
           </div>
 
@@ -141,23 +145,28 @@ export default function DashboardClient({ firstName, avatarUrl }: DashboardClien
               The Vault
             </h3>
             <div className="flex items-center gap-4">
-              {/* Vault Icon */}
+              {/* Vault Icon with key */}
               <div
-                className="w-16 h-16 rounded-lg flex items-center justify-center"
+                className="w-20 h-20 rounded-lg flex items-center justify-center relative"
                 style={{ backgroundColor: '#2D5016' }}
               >
                 <svg
-                  width="32"
-                  height="32"
+                  width="40"
+                  height="40"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="2"
                   className="text-white"
                 >
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                  <circle cx="12" cy="16" r="1" />
+                  {/* Safe/Vault */}
+                  <rect x="4" y="10" width="16" height="12" rx="2" ry="2" />
+                  <path d="M8 10V6a4 4 0 0 1 8 0v4" />
+                  {/* Dial/Lock mechanism */}
+                  <circle cx="12" cy="16" r="2" />
+                  <circle cx="12" cy="16" r="0.5" fill="currentColor" />
+                  {/* Key */}
+                  <path d="M3 14l2-2m0 0l1-1m-1 1l-1 1m1-1l1 1" strokeWidth="1.5" />
                 </svg>
               </div>
             </div>
@@ -166,8 +175,8 @@ export default function DashboardClient({ firstName, avatarUrl }: DashboardClien
 
         {/* Right: Sidebar */}
         <aside
-          className="w-80 rounded-lg p-6 flex flex-col"
-          style={{ backgroundColor: '#C85C1A', minHeight: '500px' }}
+          className="w-80 rounded-lg p-6 flex flex-col shadow-lg"
+          style={{ backgroundColor: '#F2B75B', minHeight: '500px' }}
         >
           {/* Points Total */}
           <div className="mb-6">
@@ -182,52 +191,85 @@ export default function DashboardClient({ firstName, avatarUrl }: DashboardClien
           {/* Level Badge */}
           <div className="mb-6 flex flex-col items-center">
             <div className="w-20 h-20 mb-3 flex items-center justify-center">
-              {/* Badge Icon */}
+              {/* Golden Badge with green leaf */}
               <svg
                 width="80"
                 height="80"
                 viewBox="0 0 100 100"
-                className="text-white"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
               >
-                {/* Badge shape */}
+                {/* Golden badge star shape */}
                 <path
-                  d="M50 10 L60 40 L90 40 L68 58 L75 88 L50 70 L25 88 L32 58 L10 40 L40 40 Z"
-                  fill="currentColor"
-                  stroke="#FFFFFF"
+                  d="M50 10 L58 38 L88 38 L65 55 L73 85 L50 68 L27 85 L35 55 L12 38 L42 38 Z"
+                  fill="#F59E0B"
+                  stroke="#D97706"
                   strokeWidth="2"
                 />
-                {/* Leaf in center */}
-                <circle cx="50" cy="50" r="8" fill="#22C55E" />
+                {/* Red ribbons */}
+                <path
+                  d="M30 20 L35 45 M70 20 L65 45"
+                  stroke="#DC2626"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                />
+                {/* Green leaf in center */}
+                <path
+                  d="M50 45 Q45 40 48 50 Q50 55 52 50 Q55 40 50 45"
+                  fill="#22C55E"
+                />
+                <path
+                  d="M48 48 Q50 52 52 48"
+                  fill="#16A34A"
+                />
               </svg>
             </div>
-            <div className="text-2xl font-bold mb-1" style={{ color: '#FFFFFF' }}>
-              Level: {currentLevel}
+            <div className="text-sm mb-1" style={{ color: '#FFFFFF' }}>
+              Level:
             </div>
-            <div className="text-sm text-center" style={{ color: '#FAF6F0' }}>
+            <div className="text-2xl font-bold mb-1" style={{ color: '#FFFFFF' }}>
+              {currentLevel}
+            </div>
+            <div className="text-sm text-center" style={{ color: '#FAF6F0', opacity: 0.9 }}>
               next badge at {nextLevelPoints} pts
             </div>
           </div>
 
           {/* Streak Days */}
           <div className="mt-auto flex flex-col items-center">
-            {/* Flame Icon */}
+            {/* Flame Icon - colorful */}
             <div className="mb-2">
               <svg
                 width="32"
                 height="32"
                 viewBox="0 0 24 24"
                 fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                className="text-white"
+                xmlns="http://www.w3.org/2000/svg"
               >
-                <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
+                {/* Outer flame - red/orange */}
+                <path
+                  d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"
+                  fill="#EF4444"
+                />
+                {/* Inner flame - yellow */}
+                <path
+                  d="M10 13a2 2 0 0 0 1.5-.5c-.3-1-.7-2-1-3-.3-1.5 0-3 1-4.5.5 2 1.5 3.5 2.5 4.5 1 1 1.5 2.5 1.5 4a5 5 0 1 1-10 0c0-.8.3-1.6.8-2.2a2 2 0 0 0 1.7 1.7z"
+                  fill="#F59E0B"
+                />
+                {/* Core - yellow/white */}
+                <path
+                  d="M11 12.5c-.2-.8-.5-1.5-1-2-.5-1 0-2 .5-3 .3 1 .7 1.8 1 2.5.3.7.5 1.5.5 2.5z"
+                  fill="#FDE047"
+                />
               </svg>
             </div>
-            <div className="text-2xl font-bold mb-1" style={{ color: '#FFFFFF' }}>
-              Streak days: {streakDays}
+            <div className="text-sm mb-1" style={{ color: '#FFFFFF' }}>
+              Streak days:
             </div>
-            <div className="text-xs text-center mt-2" style={{ color: '#FAF6F0' }}>
+            <div className="text-2xl font-bold mb-1" style={{ color: '#FFFFFF' }}>
+              {streakDays}
+            </div>
+            <div className="text-xs text-center mt-2" style={{ color: '#FAF6F0', opacity: 0.9 }}>
               Advance your journeys to get badges for rewards & perks!
             </div>
           </div>
@@ -251,24 +293,34 @@ interface JourneyCardProps {
 
 function JourneyCard({ title, subtitle, progress, isCompleted }: JourneyCardProps) {
   return (
-    <div
-      className="relative rounded-lg p-6 cursor-pointer hover:opacity-90 transition-opacity"
-      style={{ backgroundColor: '#C85C1A' }}
-    >
-      {/* Progress Badge (Top Right) */}
+    <div className="relative">
       <div
-        className="absolute top-4 right-4 px-3 py-1 rounded-full text-sm font-bold text-white"
-        style={{ backgroundColor: '#2D5016' }}
+        className="relative rounded-lg p-6 cursor-pointer hover:opacity-90 transition-opacity shadow-md"
+        style={{ backgroundColor: '#F2B75B' }}
       >
-        {progress}%
+        {/* Progress Badge (Top Right - small circle) */}
+        <div
+          className="absolute top-4 right-4 w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold"
+          style={{ backgroundColor: '#2D5016', color: '#F2B75B' }}
+        >
+          {progress}%
+        </div>
+
+        {/* Content */}
+        <div className="pr-16">
+          <h3 className="text-xl font-bold mb-1 text-white">{title}</h3>
+          <p className="text-sm" style={{ color: '#FFFFFF' }}>
+            {subtitle}
+          </p>
+        </div>
       </div>
 
-      {/* Completed Badge (Bottom Right) */}
+      {/* Completed Badge (Outside right of card) */}
       {isCompleted && (
-        <div className="absolute bottom-4 right-4 w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: '#22C55E' }}>
+        <div className="absolute -right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center shadow-lg" style={{ backgroundColor: '#22C55E' }}>
           <svg
-            width="20"
-            height="20"
+            width="24"
+            height="24"
             viewBox="0 0 24 24"
             fill="none"
             stroke="white"
@@ -280,14 +332,6 @@ function JourneyCard({ title, subtitle, progress, isCompleted }: JourneyCardProp
           </svg>
         </div>
       )}
-
-      {/* Content */}
-      <div className="pr-20">
-        <h3 className="text-xl font-bold mb-1 text-white">{title}</h3>
-        <p className="text-sm" style={{ color: '#FAF6F0' }}>
-          {subtitle}
-        </p>
-      </div>
     </div>
   )
 }
