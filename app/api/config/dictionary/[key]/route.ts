@@ -14,8 +14,8 @@ export async function GET(
     // Special handling for countries - fetch from countries table
     if (key === 'countries') {
       const supabase = createAdminClient()
-      const { data: countries, error } = await supabase
-        .from('countries')
+      const { data: countries, error } = await (supabase
+        .from('countries') as any)
         .select('id, iso_code, name_en, visa_status')
         .order('name_en', { ascending: true })
 
@@ -28,7 +28,7 @@ export async function GET(
       }
 
       // Transform to dictionary format
-      const items = countries.map((country) => ({
+      const items = (countries || []).map((country: any) => ({
         value: country.id.toString(), // Store country ID
         label: country.name_en,
         // Include visa_status for later use (metadata, not shown in dropdown)

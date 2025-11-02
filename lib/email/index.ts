@@ -113,13 +113,24 @@ async function sendPasswordResetDevelopment({
 }
 
 /**
- * PRODUCTION: Send email via Resend
+ * PRODUCTION: Send email via Gmail SMTP (fallback to Resend)
  */
 async function sendEmailVerificationProduction({
   to,
   firstName = 'there',
   confirmationUrl,
 }: SendEmailVerificationParams): Promise<EmailResult> {
+  // Try Gmail SMTP first (no domain restrictions)
+  if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+    const { sendEmailVerification: sendGmail } = await import('./gmail')
+    return sendGmail({
+      to,
+      firstName,
+      confirmationUrl,
+    })
+  }
+
+  // Fallback to Resend
   const { sendEmailVerification: sendResend } = await import('./resend')
   return sendResend({
     to,
@@ -133,6 +144,17 @@ async function sendPasswordResetProduction({
   firstName = 'there',
   resetUrl,
 }: SendPasswordResetParams): Promise<EmailResult> {
+  // Try Gmail SMTP first (no domain restrictions)
+  if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+    const { sendPasswordReset: sendGmail } = await import('./gmail')
+    return sendGmail({
+      to,
+      firstName,
+      resetUrl,
+    })
+  }
+
+  // Fallback to Resend
   const { sendPasswordReset: sendResend } = await import('./resend')
   return sendResend({
     to,

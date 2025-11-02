@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     const validation = registerSchema.safeParse(body)
     if (!validation.success) {
       return NextResponse.json(
-        { error: 'Validation failed', details: validation.error.errors },
+        { error: 'Validation failed', details: validation.error.issues },
         { status: 400 }
       )
     }
@@ -62,11 +62,11 @@ export async function POST(request: Request) {
 
     const supabase = createAdminClient()
 
-    // 1. Create user in Supabase Auth (this will trigger email verification)
+    // 1. Create user in Supabase Auth (this will trigger Supabase's email verification)
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email: data.email,
       password: data.password,
-      email_confirm: false, // Require email confirmation
+      email_confirm: false, // Require email confirmation via Supabase
       user_metadata: {
         first_name: data.first_name,
         last_name: data.last_name,
@@ -99,30 +99,7 @@ export async function POST(request: Request) {
 
     const userId = authData.user.id
 
-    // 2. Generate email confirmation link
-    // Since Supabase email sending is restricted due to bounce rates,
-    // we use Resend to send the verification email
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_BASE_URL || 'http://localhost:3000'
-
-    // Generate confirmation link using Supabase Admin API
-    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
-      type: 'signup',
-      email: data.email,
-      options: {
-        redirectTo: `${baseUrl}/auth/callback`
-      }
-    })
-
-    if (linkError) {
-      console.error('Error generating confirmation link:', linkError)
-      // Don't fail registration if link generation fails - we can try to construct it manually
-    }
-
-    // Use generated link with proper callback URL
-    const confirmationUrl = linkData?.properties?.action_link ||
-      `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/verify?token=pending&type=signup&redirect_to=${encodeURIComponent(baseUrl + '/auth/callback')}`
-
-    // 3. Create profile in profiles table
+    // 2. Create profile in profiles table
     // Parse country_of_origin (comes as string ID from dropdown)
     const countryOfOriginId = data.country_of_origin
       ? parseInt(data.country_of_origin, 10)
@@ -142,7 +119,7 @@ export async function POST(request: Request) {
       plz: data.swiss_address_plz || data.plz || null,
       city: data.swiss_address_city || data.city || null,
       avatar_url: data.avatar_url || null, // Will be set after upload
-    })
+    } as any)
 
     if (profileError) {
       console.error('Profile creation error:', profileError)
@@ -180,8 +157,8 @@ export async function POST(request: Request) {
             .getPublicUrl(fileName)
 
           // Update profile with avatar URL
-          await supabase
-            .from('profiles')
+          await (supabase
+            .from('profiles') as any)
             .update({ avatar_url: urlData.publicUrl })
             .eq('user_id', userId)
         } else {
@@ -201,8 +178,8 @@ export async function POST(request: Request) {
         interest_key: interest,
       }))
 
-      const { error: interestsError } = await supabase
-        .from('user_interests')
+      const { error: interestsError } = await (supabase
+        .from('user_interests') as any)
         .insert(interestsData)
 
       if (interestsError) {
@@ -212,7 +189,7 @@ export async function POST(request: Request) {
     }
 
     // 5. Log registration event
-    const { error: eventError } = await supabase.from('events').insert({
+    const { error: eventError } = await (supabase.from('events') as any).insert({
       name: 'registration_completed',
       payload: {
         user_id: userId,
@@ -226,7 +203,22 @@ export async function POST(request: Request) {
       // Don't fail registration if event logging fails
     }
 
-    // 6. Send email verification via Resend (since Supabase email sending is restricted)
+    // 6. Send email verification via custom SMTP (Gmail/Resend)
+    // Supabase email is disabled due to bounce rates
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_BASE_URL || 'http://localhost:3000'
+
+    // Generate confirmation link
+    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+      type: 'signup',
+      email: data.email,
+      options: {
+        redirectTo: `${baseUrl}/auth/callback`
+      }
+    })
+
+    const confirmationUrl = linkData?.properties?.action_link ||
+      `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/verify?token=pending&type=signup&redirect_to=${encodeURIComponent(baseUrl + '/auth/callback')}`
+
     const emailResult = await sendEmailVerification({
       to: data.email,
       firstName: data.first_name,
@@ -234,11 +226,10 @@ export async function POST(request: Request) {
     })
 
     if (!emailResult.success) {
-      console.warn('Failed to send email verification via Resend:', emailResult.error)
+      console.warn('Failed to send email verification:', emailResult.error)
       // Don't fail registration - user can request resend later
-      // But log it for monitoring
     } else {
-      console.log('Email verification sent successfully via Resend to:', data.email)
+      console.log('✅ Email verification sent successfully to:', data.email)
     }
 
     return NextResponse.json({

@@ -1,9 +1,11 @@
 'use client'
 
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 
-export default function EmailVerifiedPage() {
+export const dynamic = 'force-dynamic'
+
+function VerifiedContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const [countdown, setCountdown] = useState(5)
@@ -80,5 +82,13 @@ export default function EmailVerifiedPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function EmailVerifiedPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <VerifiedContent />
+    </Suspense>
   )
 }

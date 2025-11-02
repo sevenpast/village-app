@@ -446,13 +446,23 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
       // Success - clear localStorage and call onComplete
       localStorage.removeItem('registration_draft')
       
+      console.log('✅ Registration successful:', result)
+      console.log('📧 Email sent:', result.email || formData.email)
+      console.log('👤 First name:', result.firstName || formData.first_name || formData.firstName)
+      
       if (onComplete) {
-        onComplete(result)
+        // Call onComplete which will redirect to success page
+        // API returns { success: true, email, firstName }
+        const completeData = {
+          success: true,
+          email: result.email || result.data?.user?.email || formData.email,
+          firstName: result.firstName || formData.first_name || formData.firstName,
+        }
+        console.log('🚀 Calling onComplete with:', completeData)
+        onComplete(completeData)
+      } else {
+        console.warn('⚠️ onComplete callback not provided')
       }
-
-      // Redirect to success page or show success message
-      // You can implement a success page here
-      console.log('Registration successful:', result)
     } catch (error) {
       console.error('Registration error:', error)
       methods.setError('root', {
@@ -467,17 +477,17 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
 
   // Get title for current step
   const getStepTitle = () => {
-    // Step 0: Personal Information - "Create your account"
-    // Step 1: Account Credentials - "Create your account"
-    // Step 2+: All other steps - "Tailor your experience"
+    // Steps 0-1 (Personal Information, Credentials) - "Create your account" (obligatorisch)
+    // Steps 2+ (Arrival, Country, Living, Current, Interests, Avatar) - "Tailor your experience" (freiwillig)
     if (currentStep === 0 || currentStep === 1) {
       return 'Create your account'
     }
     return 'Tailor your experience'
   }
   
-  // Show "on Village" subtitle for steps 2 and above
-  const showVillageSubtitle = currentStep >= 2
+  // Show "on Village" subtitle only for optional steps (steps 2+)
+  // Avatar Upload is now the last step (after Interests)
+  const showVillageSubtitle = currentStep > 1
 
   return (
     <FormProvider {...methods}>
@@ -527,32 +537,69 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
             e.preventDefault()
             console.log('Form submit event triggered')
             
-            // For last step, validate all required fields across all steps
+            // For last step (Avatar Upload - step 7), validate only required fields from steps 0-1
+            // All other steps (2-6) are optional
             if (isLastStep) {
-              console.log('Last step - validating all required fields...')
+              console.log('🎯 Last step (Avatar Upload) - validating required fields from steps 0-1...')
               const allFields: string[] = []
-              formConfig?.steps.forEach((step) => {
-                if (step && step.fields && Array.isArray(step.fields)) {
-                  step.fields.forEach((field) => {
-                    // Only validate required fields
+              
+              // Only validate required fields from steps 0-1 (Personal Info and Credentials)
+              if (formConfig?.steps && formConfig.steps.length >= 2) {
+                // Step 0: Personal Information
+                const step0 = formConfig.steps[0]
+                if (step0 && step0.fields && Array.isArray(step0.fields)) {
+                  step0.fields.forEach((field) => {
                     if (field.required === true) {
                       allFields.push(field.name)
                     }
                   })
                 }
-              })
+                
+                // Step 1: Credentials
+                const step1 = formConfig.steps[1]
+                if (step1 && step1.fields && Array.isArray(step1.fields)) {
+                  step1.fields.forEach((field) => {
+                    if (field.required === true) {
+                      allFields.push(field.name)
+                    }
+                  })
+                }
+              }
               
-              console.log('Required fields to validate:', allFields)
-              const isValid = await trigger(allFields as any)
+              console.log('📋 Required fields to validate:', allFields)
               
-              if (isValid) {
-                console.log('✅ All required fields valid, calling onSubmit')
+              if (allFields.length === 0) {
+                // No required fields, just submit
+                console.log('✅ No required fields to validate, submitting...')
                 const formData = getValues()
                 await onSubmit(formData)
               } else {
-                console.error('❌ Validation failed for required fields')
-                const errors = methods.formState.errors
-                console.error('Form errors:', errors)
+                console.log('🔍 Triggering validation for required fields...')
+                const isValid = await trigger(allFields as any)
+                
+                console.log('✅ Validation result:', isValid)
+                console.log('📊 Current form errors:', methods.formState.errors)
+                
+                if (isValid) {
+                  console.log('✅ All required fields valid, calling onSubmit')
+                  const formData = getValues()
+                  await onSubmit(formData)
+                } else {
+                  console.error('❌ Validation failed for required fields')
+                  const errors = methods.formState.errors
+                  console.error('Form errors:', errors)
+                  
+                  // Show user-friendly error message
+                  const errorMessages = Object.keys(errors).map(key => {
+                    const error = errors[key]
+                    return error?.message || `${key} is invalid`
+                  }).join(', ')
+                  
+                  methods.setError('root', {
+                    type: 'manual',
+                    message: `Please fix the following errors: ${errorMessages}`,
+                  })
+                }
               }
             } else {
               // For non-last steps, use normal handleNext
@@ -569,16 +616,55 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
           <div className="flex justify-center pt-8">
             {isLastStep ? (
               <button
-                type="submit"
-                onClick={(e) => {
-                  console.log('Complete button clicked, isLastStep:', isLastStep)
-                  // Let form handle submit, don't prevent default here
+                type="button"
+                onClick={async (e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  console.log('🎯🎯🎯 COMPLETE BUTTON CLICKED! 🎯🎯🎯')
+                  console.log('Current step:', currentStep, 'isLastStep:', isLastStep)
+                  
+                  try {
+                    // Get all form data
+                    const formData = methods.getValues()
+                    console.log('📊 Form data keys:', Object.keys(formData))
+                    console.log('📧 Email:', formData.email)
+                    console.log('👤 First name:', formData.first_name)
+                    console.log('🔐 Password:', formData.password ? '***' : 'MISSING')
+                    
+                    // Validate only Step 0 and Step 1 required fields
+                    const requiredFields = ['first_name', 'last_name', 'email', 'password']
+                    const isValid = await methods.trigger(requiredFields as any)
+                    
+                    if (!isValid) {
+                      console.error('❌ Required fields missing')
+                      alert('Please fill in all required fields: First Name, Last Name, Email, and Password')
+                      return
+                    }
+                    
+                    // Check password match
+                    if (formData.password !== formData.password_confirm) {
+                      console.error('❌ Passwords do not match')
+                      alert('Passwords do not match')
+                      return
+                    }
+                    
+                    // Call onSubmit
+                    console.log('🚀 Calling onSubmit...')
+                    await onSubmit(formData)
+                    console.log('✅ onSubmit completed successfully')
+                  } catch (error) {
+                    console.error('❌ onSubmit error:', error)
+                    alert('Registration error: ' + (error instanceof Error ? error.message : String(error)))
+                  }
                 }}
+                disabled={methods.formState.isSubmitting}
                 className="px-8 py-4 text-white font-bold rounded-lg transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ backgroundColor: '#2D5016' }}
-                disabled={!methods.formState.isValid && Object.keys(methods.formState.errors).length > 0}
+                style={{ 
+                  backgroundColor: '#2D5016',
+                  cursor: methods.formState.isSubmitting ? 'not-allowed' : 'pointer'
+                }}
               >
-                Complete!
+                {methods.formState.isSubmitting ? 'Submitting...' : 'Complete!'}
               </button>
             ) : (
               <button

@@ -1,8 +1,11 @@
 'use client'
 
 import { useSearchParams, useRouter } from 'next/navigation'
+import { Suspense } from 'react'
 
-export default function AuthErrorPage() {
+export const dynamic = 'force-dynamic'
+
+function ErrorContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
 
@@ -67,5 +70,13 @@ export default function AuthErrorPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function AuthErrorPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <ErrorContent />
+    </Suspense>
   )
 }

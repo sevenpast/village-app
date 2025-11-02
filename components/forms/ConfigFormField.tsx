@@ -188,12 +188,15 @@ export function ConfigFormField({
 
     case 'file':
       // Special handling for avatar upload
-      // NOTE: Avatar is now handled in ProfileEditForm to prevent double rendering
-      // Only render here if not in ProfileEditForm context
-      // For now, we skip avatar rendering here since ProfileEditForm handles it
       if (field.name === 'avatar') {
-        // Return null to prevent double rendering - ProfileEditForm handles this
-        return null
+        // Use AvatarUpload component for avatar fields
+        return (
+          <AvatarUpload
+            fieldName={field.name}
+            label={field.label}
+            required={field.required || false}
+          />
+        )
       }
       // Default file input for other file types
       return (

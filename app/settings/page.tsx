@@ -48,8 +48,8 @@ export default function SettingsPage() {
       setUserEmail(user.email || null)
 
       // Load profile
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
+      const { data: profile, error: profileError } = await (supabase
+        .from('profiles') as any)
         .select('*')
         .eq('user_id', user.id)
         .single()
@@ -80,8 +80,8 @@ export default function SettingsPage() {
       console.log('✅ Profile loaded:', profile)
 
       // Load interests
-      const { data: interests, error: interestsError } = await supabase
-        .from('user_interests')
+      const { data: interests, error: interestsError } = await (supabase
+        .from('user_interests') as any)
         .select('interest_key')
         .eq('user_id', user.id)
 
