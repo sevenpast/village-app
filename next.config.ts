@@ -7,13 +7,8 @@ const nextConfig: NextConfig = {
     // TODO: Fix Supabase type definitions properly
     ignoreBuildErrors: true,
   },
-  // Explicitly configure Turbopack (Next.js 16 default)
-  // This ensures proper bundling of all client components
-  experimental: {
-    turbo: {
-      // Turbopack configuration if needed
-    },
-  },
+  // Next.js 16 uses Turbopack by default
+  // No webpack config needed - all Link imports are already correct
 };
 
 export default nextConfig;
