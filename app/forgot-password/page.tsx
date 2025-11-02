@@ -1,7 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import NextLink from 'next/link'
+
+// Explicitly alias Link to avoid production bundling issues
+const Link = NextLink
 import RegistrationFooter from '@/components/forms/RegistrationFooter'
 
 export default function ForgotPasswordPage() {

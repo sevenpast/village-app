@@ -1,6 +1,9 @@
 'use client'
 
-import Link from 'next/link'
+import NextLink from 'next/link'
+
+// Explicitly alias Link to avoid production bundling issues
+const Link = NextLink
 
 /**
  * Registration Footer Component

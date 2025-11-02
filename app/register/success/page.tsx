@@ -2,7 +2,10 @@
 
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
-import Link from 'next/link'
+import NextLink from 'next/link'
+
+// Explicitly alias Link to avoid production bundling issues
+const Link = NextLink
 import RegistrationHeader from '@/components/forms/RegistrationHeader'
 import RegistrationFooter from '@/components/forms/RegistrationFooter'
 

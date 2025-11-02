@@ -1,7 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import Link from 'next/link'
+import NextLink from 'next/link'
+
+// Explicitly alias Link to avoid production bundling issues
+const Link = NextLink
 import RegistrationFooter from '@/components/forms/RegistrationFooter'
 import GemeindeRegistrationInfobox from './gemeinde-registration-infobox'
 import { getMunicipalityUrl } from '@/lib/municipality-urls'

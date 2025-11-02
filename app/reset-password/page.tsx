@@ -2,7 +2,10 @@
 
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import Link from 'next/link'
+import NextLink from 'next/link'
+
+// Explicitly alias Link to avoid production bundling issues
+const Link = NextLink
 import RegistrationFooter from '@/components/forms/RegistrationFooter'
 
 export const dynamic = 'force-dynamic'
