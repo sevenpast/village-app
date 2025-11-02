@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { DocumentProcessor } from '@/lib/vault/document-processor'
-import sharp from 'sharp'
 
 /**
  * Upload document to Vault

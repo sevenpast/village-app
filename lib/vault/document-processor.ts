@@ -3,10 +3,9 @@
  * Handles PDF parsing, OCR, and AI classification for uploaded documents
  */
 
-import pdf from 'pdf-parse'
-import Tesseract from 'tesseract.js'
-import { GoogleGenerativeAI } from '@google/generative-ai'
-import sharp from 'sharp'
+// Dynamic imports for server-side only (these packages don't work in client-side)
+// pdf-parse doesn't have a default export in ESM
+import type { PDFInfo } from 'pdf-parse'
 
 export interface ProcessedDocument {
   extractedText: string
@@ -48,7 +47,9 @@ export class DocumentProcessor {
     // Step 1: Try PDF text extraction first (fastest, free)
     if (mimeType === 'application/pdf') {
       try {
-        const pdfData = await pdf(fileBuffer)
+        // Dynamic import for pdf-parse (server-side only)
+        const pdfParse = await import('pdf-parse')
+        const pdfData = await pdfParse.default(fileBuffer)
         extractedText = pdfData.text
         metadata = {
           pages: pdfData.numpages,
@@ -107,6 +108,10 @@ export class DocumentProcessor {
    */
   private async performOCR(buffer: Buffer, mimeType: string): Promise<string> {
     try {
+      // Dynamic imports for server-side only
+      const Tesseract = await import('tesseract.js')
+      const sharpModule = await import('sharp')
+      
       // Convert to image format if needed
       let imageBuffer = buffer
       
@@ -120,13 +125,13 @@ export class DocumentProcessor {
 
       // Ensure image is in supported format (JPEG/PNG)
       if (mimeType !== 'image/jpeg' && mimeType !== 'image/png') {
-        imageBuffer = await sharp(buffer)
+        imageBuffer = await sharpModule.default(buffer)
           .jpeg({ quality: 90 })
           .toBuffer()
       }
 
       // Run Tesseract OCR with Swiss languages
-      const { data } = await Tesseract.recognize(imageBuffer, 'deu+fra+ita+eng', {
+      const { data } = await Tesseract.default.recognize(imageBuffer, 'deu+fra+ita+eng', {
         logger: (m) => {
           if (m.status === 'recognizing text') {
             console.log(`OCR Progress: ${Math.round(m.progress * 100)}%`)
@@ -317,9 +322,12 @@ ${text.substring(0, 4000)}
    */
   async generateThumbnail(fileBuffer: Buffer, mimeType: string): Promise<Buffer> {
     try {
+      // Dynamic import for server-side only
+      const sharpModule = await import('sharp')
+      
       if (mimeType.startsWith('image/')) {
         // Resize image to thumbnail
-        return await sharp(fileBuffer)
+        return await sharpModule.default(fileBuffer)
           .resize(300, 300, { fit: 'inside', withoutEnlargement: true })
           .jpeg({ quality: 80 })
           .toBuffer()
