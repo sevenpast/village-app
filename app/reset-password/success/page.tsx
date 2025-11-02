@@ -1,9 +1,6 @@
 'use client'
 
-import NextLink from 'next/link'
-
-// Explicitly alias Link to avoid production bundling issues
-const Link = NextLink
+import Link from '@/lib/link'
 import RegistrationFooter from '@/components/forms/RegistrationFooter'
 
 export default function ResetPasswordSuccessPage() {

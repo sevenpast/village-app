@@ -1,9 +1,6 @@
 'use client'
 
-import NextLink from 'next/link'
-
-// Explicitly alias Link to avoid production bundling issues
-const Link = NextLink
+import Link from '@/lib/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 

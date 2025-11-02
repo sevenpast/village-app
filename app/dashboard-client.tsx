@@ -1,10 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import NextLink from 'next/link'
-
-// Explicitly alias Link to avoid production bundling issues
-const Link = NextLink
+import Link from '@/lib/link'
 import RegistrationFooter from '@/components/forms/RegistrationFooter'
 import AppHeader from '@/components/AppHeader'
 

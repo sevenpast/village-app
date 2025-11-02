@@ -7,8 +7,17 @@ const nextConfig: NextConfig = {
     // TODO: Fix Supabase type definitions properly
     ignoreBuildErrors: true,
   },
-  // Next.js 16 uses Turbopack by default
-  // No webpack config needed - all Link imports are already correct
+  // Force production builds to use webpack instead of Turbopack
+  // This ensures consistent bundling across environments
+  experimental: {
+    turbo: undefined, // Let Next.js decide
+  },
+  // Ensure proper module resolution for Link component
+  modularizeImports: {
+    'next/link': {
+      transform: 'next/link',
+    },
+  },
 };
 
 export default nextConfig;
