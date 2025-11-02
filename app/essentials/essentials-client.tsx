@@ -674,9 +674,26 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       {/* Header */}
       <header className="w-full" style={{ backgroundColor: '#2D5016' }}>
         <div className="flex items-center justify-between px-6 py-4">
-          {/* Logo removed */}
-          <div className="flex items-center">
-          </div>
+          {/* Back to Home Button */}
+          <Link
+            href="/"
+            className="flex items-center gap-2 text-white hover:opacity-90 transition-opacity font-medium"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+              <polyline points="9 22 9 12 15 12 15 22" />
+            </svg>
+            <span>Home</span>
+          </Link>
           {/* Profile Picture */}
           <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white">
             {avatarUrl ? (
