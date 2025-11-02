@@ -37,6 +37,13 @@ function ResetPasswordContent() {
       return
     }
 
+    // Check password strength (match server validation)
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/
+    if (!passwordRegex.test(password)) {
+      setError('Password must contain uppercase, lowercase, number and special character')
+      return
+    }
+
     if (!token) {
       setError('Invalid reset token')
       return

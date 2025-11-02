@@ -139,86 +139,60 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
   const { handleSubmit, trigger, watch, setValue, getValues } = methods
   const watchedValues = watch()
 
-  // Calculate total fields count (excluding dynamic fields and address sub-fields)
-  const totalFields = useMemo(() => {
-    if (!formConfig) return 0
-    return formConfig.steps.reduce((total, step) => {
-      // Skip null steps or steps without fields
-      if (!step || !step.fields || !Array.isArray(step.fields)) {
-        return total
-      }
-      return total + step.fields.filter((field) => {
-        // Exclude dynamic fields and address sub-fields
-        if (isDynamicField(field.name)) return false
-        if (isAddressSubField(field.name)) return false
-        // Address field itself counts as one field (not the sub-fields)
-        if (field.type === 'address') return true
-        return true
-      }).length
-    }, 0)
-  }, [formConfig])
+  // Define REQUIRED fields (obligatorisch): first_name, last_name, email, password, password_confirm, date_of_birth
+  const REQUIRED_FIELDS = ['first_name', 'last_name', 'email', 'password', 'password_confirm', 'date_of_birth']
 
-  // Calculate progress based on filled fields (excluding dynamic fields)
+  // Check if a field is required (obligatorisch)
+  const isRequiredField = (fieldName: string): boolean => {
+    return REQUIRED_FIELDS.includes(fieldName)
+  }
+
+  // Calculate total REQUIRED fields count (only obligatorisch fields)
+  const totalRequiredFields = useMemo(() => {
+    return REQUIRED_FIELDS.length
+  }, [])
+
+  // Calculate progress based on filled REQUIRED fields only (obligatorisch)
   const progress = useMemo(() => {
-    if (totalFields === 0) return 0
+    if (totalRequiredFields === 0) return 0
     
     let filledCount = 0
-    if (formConfig) {
-      formConfig.steps.forEach((step) => {
-        // Skip null steps or steps without fields
-        if (!step || !step.fields || !Array.isArray(step.fields)) {
-          return
-        }
-        
-        step.fields.forEach((field) => {
-          // Skip dynamic fields and address sub-fields in progress calculation
-          if (isDynamicField(field.name)) {
-            return
-          }
-          if (isAddressSubField(field.name)) {
-            return
-          }
-
-          const value = watchedValues[field.name]
-          
-          // For address fields, check if any sub-field is filled
-          if (field.type === 'address') {
-            const street = watchedValues[`${field.name}_street`]
-            const number = watchedValues[`${field.name}_number`]
-            const plz = watchedValues[`${field.name}_plz`]
-            const city = watchedValues[`${field.name}_city`]
-            
-            if (street || number || plz || city) {
-              filledCount++
-            }
-            return
-          }
-          
-          // Check if field is filled
-          if (value !== undefined && value !== null && value !== '') {
-            // For File objects (avatar)
-            if (value instanceof File) {
-              filledCount++
-            }
-            // For multiselect, check if array has items
-            else if (Array.isArray(value) && value.length > 0) {
-              filledCount++
-            } 
-            // For strings, check if not empty
-            else if (typeof value === 'string' && value.trim() !== '') {
-              filledCount++
-            } 
-            // For objects (but not File), check if has keys
-            else if (typeof value === 'object' && Object.keys(value).length > 0) {
-              filledCount++
-            }
-          }
-        })
-      })
-    }
     
-    return Math.round((filledCount / totalFields) * 100)
-  }, [watchedValues, totalFields, formConfig])
+    // Check each required field
+    REQUIRED_FIELDS.forEach((fieldName) => {
+      const value = watchedValues[fieldName]
+      
+      // Check if field is filled
+      if (value !== undefined && value !== null && value !== '') {
+        // For strings, check if not empty
+        if (typeof value === 'string' && value.trim() !== '') {
+          filledCount++
+        } 
+        // For date fields (date_of_birth)
+        else if (value instanceof Date) {
+          filledCount++
+        }
+        // For objects, check if has keys
+        else if (typeof value === 'object' && Object.keys(value).length > 0) {
+          filledCount++
+        }
+      }
+    })
+    
+    const percentage = Math.round((filledCount / totalRequiredFields) * 100)
+    console.log('📊 Progress calculation:', {
+      filledCount,
+      totalRequiredFields,
+      percentage,
+      filledFields: REQUIRED_FIELDS.filter(f => {
+        const val = watchedValues[f]
+        return val !== undefined && val !== null && val !== '' && 
+               (typeof val !== 'string' || val.trim() !== '')
+      })
+    })
+    
+    return percentage
+  }, [watchedValues, totalRequiredFields])
 
   // Autosave on step completion (debounced to avoid infinite loops)
   useEffect(() => {
@@ -631,13 +605,20 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
                     console.log('👤 First name:', formData.first_name)
                     console.log('🔐 Password:', formData.password ? '***' : 'MISSING')
                     
-                    // Validate only Step 0 and Step 1 required fields
-                    const requiredFields = ['first_name', 'last_name', 'email', 'password']
+                    // Validate all REQUIRED fields (obligatorisch): first_name, last_name, email, password, password_confirm, date_of_birth
+                    const requiredFields = ['first_name', 'last_name', 'email', 'password', 'password_confirm', 'date_of_birth']
                     const isValid = await methods.trigger(requiredFields as any)
                     
                     if (!isValid) {
                       console.error('❌ Required fields missing')
-                      alert('Please fill in all required fields: First Name, Last Name, Email, and Password')
+                      const missingFields: string[] = []
+                      requiredFields.forEach(field => {
+                        const value = formData[field]
+                        if (!value || (typeof value === 'string' && value.trim() === '')) {
+                          missingFields.push(field.replace('_', ' '))
+                        }
+                      })
+                      alert(`Please fill in all required fields: ${missingFields.join(', ')}`)
                       return
                     }
                     

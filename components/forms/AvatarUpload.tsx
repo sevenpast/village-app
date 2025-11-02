@@ -75,7 +75,7 @@ export default function AvatarUpload({
 
   return (
     <div className="mb-6">
-      {label && (
+      {label && label.trim() !== '' && (
         <h2 className="text-2xl font-bold mb-2" style={{ color: '#2D5016' }}>
           {label}
         </h2>

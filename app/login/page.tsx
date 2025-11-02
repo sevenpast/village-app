@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import RegistrationFooter from '@/components/forms/RegistrationFooter'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -172,25 +173,7 @@ export default function LoginPage() {
       </div>
 
       {/* Footer */}
-      <footer
-        className="w-full px-4 py-4 flex justify-between items-center text-sm"
-        style={{ backgroundColor: '#FAF6F0', color: '#8B6F47' }}
-      >
-        <span>Village</span>
-        <nav className="flex gap-4">
-          <Link href="/about" className="hover:underline">
-            About
-          </Link>
-          <span>|</span>
-          <Link href="/privacy" className="hover:underline">
-            Privacy
-          </Link>
-          <span>|</span>
-          <Link href="/terms" className="hover:underline">
-            Terms
-          </Link>
-        </nav>
-      </footer>
+      <RegistrationFooter />
     </div>
   )
 }

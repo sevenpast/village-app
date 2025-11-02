@@ -126,6 +126,9 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
         // await fetch(`/api/tasks/${selectedTask}/complete`, { method: 'POST' })
         console.log(`Task ${selectedTask} marked as completed`)
         
+        // Dispatch custom event to update progress on dashboard
+        window.dispatchEvent(new Event('taskCompleted'))
+        
         // Cancel reminder when task is done (as per user story)
         // The reminder input will be automatically disabled
       } catch (error) {

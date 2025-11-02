@@ -429,6 +429,27 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
 
       console.log('✅ Profile saved successfully:', updatedProfile)
 
+      // Update user metadata (first_name, last_name) if changed
+      if (data.first_name || data.last_name) {
+        const { data: { user: currentUser } } = await supabase.auth.getUser()
+        if (currentUser) {
+          const updatedMetadata: any = { ...currentUser.user_metadata }
+          if (data.first_name) updatedMetadata.first_name = data.first_name
+          if (data.last_name) updatedMetadata.last_name = data.last_name
+
+          const { error: metadataError } = await supabase.auth.updateUser({
+            data: updatedMetadata,
+          })
+
+          if (metadataError) {
+            console.error('⚠️ Error updating user metadata:', metadataError)
+            // Don't fail the whole save if metadata update fails
+          } else {
+            console.log('✅ User metadata updated successfully')
+          }
+        }
+      }
+
       // Update interests - MUST complete before navigating
       if (data.interests && Array.isArray(data.interests)) {
         // Delete existing interests
@@ -687,7 +708,7 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
                           <AvatarUpload
                             key={fieldKey}
                             fieldName={fieldKey}
-                            label={undefined} // Never show label for avatar to avoid duplication
+                            label="" // Empty string to prevent default label "Add your picture!" from showing
                             required={field.required || false}
                           />
                         )

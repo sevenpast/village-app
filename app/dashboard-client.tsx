@@ -1,5 +1,7 @@
 'use client'
 
+import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import RegistrationFooter from '@/components/forms/RegistrationFooter'
 import AppHeader from '@/components/AppHeader'
 
@@ -9,10 +11,72 @@ interface DashboardClientProps {
 }
 
 export default function DashboardClient({ firstName, avatarUrl }: DashboardClientProps) {
-  // Initial values (all start at 0)
-  const essentialsProgress = 0
-  const connectProgress = 0
-  const exploreProgress = 0
+  // Calculate progress from completed tasks for each journey
+  const [essentialsProgress, setEssentialsProgress] = useState(0)
+  const [connectProgress, setConnectProgress] = useState(0)
+  const [exploreProgress, setExploreProgress] = useState(0)
+  
+  const totalEssentialsTasks = 5 // Tasks 1-5
+  const totalConnectTasks = 0 // Tasks will be implemented later
+  const totalExploreTasks = 0 // Tasks will be implemented later
+
+  useEffect(() => {
+    // Load task completion status from localStorage
+    const calculateEssentialsProgress = () => {
+      let completedTasks = 0
+      for (let taskId = 1; taskId <= totalEssentialsTasks; taskId++) {
+        const savedStatus = localStorage.getItem(`task_${taskId}_done`)
+        if (savedStatus === 'true') {
+          completedTasks++
+        }
+      }
+      const progress = totalEssentialsTasks > 0 
+        ? Math.round((completedTasks / totalEssentialsTasks) * 100)
+        : 0
+      setEssentialsProgress(progress)
+    }
+
+    const calculateConnectProgress = () => {
+      // TODO: Implement when Connect tasks are defined
+      // For now, return 0 as tasks are not yet implemented
+      setConnectProgress(0)
+    }
+
+    const calculateExploreProgress = () => {
+      // TODO: Implement when Explore tasks are defined
+      // For now, return 0 as tasks are not yet implemented
+      setExploreProgress(0)
+    }
+
+    // Calculate all progresses on mount
+    calculateEssentialsProgress()
+    calculateConnectProgress()
+    calculateExploreProgress()
+
+    // Listen for storage events (when tasks are marked as done)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key && e.key.startsWith('task_') && e.key.endsWith('_done')) {
+        calculateEssentialsProgress()
+        calculateConnectProgress()
+        calculateExploreProgress()
+      }
+    }
+
+    // Listen for custom event (when tasks are marked as done on the same page)
+    const handleTaskUpdate = () => {
+      calculateEssentialsProgress()
+      calculateConnectProgress()
+      calculateExploreProgress()
+    }
+
+    window.addEventListener('storage', handleStorageChange)
+    window.addEventListener('taskCompleted', handleTaskUpdate)
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+      window.removeEventListener('taskCompleted', handleTaskUpdate)
+    }
+  }, [totalEssentialsTasks, totalConnectTasks, totalExploreTasks])
   const pointsTotal = 0
   const streakDays = 0
   const currentLevel = 'Newcomer'
@@ -58,7 +122,7 @@ export default function DashboardClient({ firstName, avatarUrl }: DashboardClien
                 title="CONNECT"
                 subtitle="Find your people"
                 progress={connectProgress}
-                isCompleted={connectProgress === 100}
+                isCompleted={connectProgress === 100 && totalConnectTasks > 0}
               />
 
               {/* EXPLORE Card */}
@@ -66,7 +130,7 @@ export default function DashboardClient({ firstName, avatarUrl }: DashboardClien
                 title="EXPLORE"
                 subtitle="Nature, culture & other gems"
                 progress={exploreProgress}
-                isCompleted={exploreProgress === 100}
+                isCompleted={exploreProgress === 100 && totalExploreTasks > 0}
               />
             </div>
           </div>

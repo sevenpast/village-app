@@ -1,4 +1,3 @@
-import nodemailer from 'nodemailer'
 import type { SendEmailVerificationParams, SendPasswordResetParams, EmailResult } from './index'
 
 /**
@@ -6,11 +5,12 @@ import type { SendEmailVerificationParams, SendPasswordResetParams, EmailResult 
  * Requires Gmail App Password (not regular password)
  */
 
-const createGmailTransporter = () => {
-  // Remove spaces from app password (Gmail App Passwords are 16 chars without spaces)
-  const appPassword = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s/g, '')
+const createGmailTransporter = async () => {
+  const nodemailer = await import('nodemailer')
+  // Remove spaces and hyphens from app password (Gmail App Passwords are 16 chars without separators)
+  const appPassword = (process.env.GMAIL_APP_PASSWORD || '').replace(/[\s-]/g, '')
   
-  return nodemailer.createTransporter({
+  return nodemailer.default.createTransport({
     service: 'gmail',
     auth: {
       user: process.env.GMAIL_USER, // Your Gmail address
@@ -33,7 +33,7 @@ export async function sendEmailVerification({
   }
 
   try {
-    const transporter = createGmailTransporter()
+    const transporter = await createGmailTransporter()
 
     const mailOptions = {
       from: `"Village" <${process.env.GMAIL_USER}>`,
@@ -69,7 +69,7 @@ export async function sendPasswordReset({
   }
 
   try {
-    const transporter = createGmailTransporter()
+    const transporter = await createGmailTransporter()
 
     const mailOptions = {
       from: `"Village" <${process.env.GMAIL_USER}>`,

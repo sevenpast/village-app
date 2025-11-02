@@ -48,10 +48,14 @@ export async function POST(request: Request) {
 
     // Generate password reset link
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_BASE_URL || 'http://localhost:3000'
+    const redirectTo = `${baseUrl}/reset-password`
     
     const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
       type: 'recovery',
       email: email,
+      options: {
+        redirectTo: redirectTo,
+      },
     })
 
     if (linkError) {
@@ -64,8 +68,29 @@ export async function POST(request: Request) {
     }
 
     // Extract reset URL from generated link
-    const resetUrl = linkData?.properties?.action_link || 
-      `${baseUrl}/reset-password?token=${linkData?.properties?.hashed_token || ''}`
+    // Supabase's generateLink returns action_link which contains the token
+    // The action_link is a Supabase Auth URL, we need to extract the token or use redirectTo
+    let resetUrl = linkData?.properties?.action_link
+    
+    if (!resetUrl) {
+      // Fallback: construct URL manually if action_link is missing
+      const token = linkData?.properties?.hashed_token || ''
+      resetUrl = `${redirectTo}?token=${token}`
+    } else {
+      // Extract token from Supabase's action_link URL
+      // Format: https://xxx.supabase.co/auth/v1/verify?token=XXX&type=recovery&redirect_to=...
+      try {
+        const url = new URL(resetUrl)
+        const token = url.searchParams.get('token')
+        if (token) {
+          // Construct our own reset URL with the token
+          resetUrl = `${redirectTo}?token=${encodeURIComponent(token)}`
+        }
+      } catch (e) {
+        // If URL parsing fails, use action_link as-is (user will be redirected)
+        console.warn('Could not parse action_link URL, using as-is:', e)
+      }
+    }
 
     // Send password reset email via Resend
     const emailResult = await sendPasswordReset({
