@@ -541,9 +541,6 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
       setTimeout(() => {
         window.location.reload()
       }, 500) // Small delay to ensure save is complete
-      
-      console.log('🚀 Navigating back to dashboard...')
-      router.push('/')
     } catch (error) {
       console.error('❌ Unexpected error saving profile:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
