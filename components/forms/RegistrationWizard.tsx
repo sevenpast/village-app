@@ -139,7 +139,7 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
   const { handleSubmit, trigger, watch, setValue, getValues } = methods
   const watchedValues = watch()
 
-  // Define REQUIRED fields (obligatorisch): first_name, last_name, email, password, password_confirm, date_of_birth
+  // Define REQUIRED fields (obligatorisch) - must be filled for registration
   const REQUIRED_FIELDS = ['first_name', 'last_name', 'email', 'password', 'password_confirm', 'date_of_birth']
 
   // Check if a field is required (obligatorisch)
@@ -147,19 +147,33 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
     return REQUIRED_FIELDS.includes(fieldName)
   }
 
-  // Calculate total REQUIRED fields count (only obligatorisch fields)
-  const totalRequiredFields = useMemo(() => {
-    return REQUIRED_FIELDS.length
-  }, [])
+  // Get all fields from all steps (for progress calculation)
+  const getAllFields = useMemo(() => {
+    if (!formConfig || !formConfig.steps) return []
+    
+    const allFields: string[] = []
+    formConfig.steps.forEach((step) => {
+      if (step && step.fields && Array.isArray(step.fields)) {
+        step.fields.forEach((field) => {
+          // Skip dynamic and address sub-fields
+          if (!isDynamicField(field.name) && !isAddressSubField(field.name)) {
+            allFields.push(field.name)
+          }
+        })
+      }
+    })
+    
+    return allFields
+  }, [formConfig])
 
-  // Calculate progress based on filled REQUIRED fields only (obligatorisch)
+  // Calculate progress based on ALL fields (to reach 100%)
   const progress = useMemo(() => {
-    if (totalRequiredFields === 0) return 0
+    if (!formConfig || getAllFields.length === 0) return 0
     
     let filledCount = 0
     
-    // Check each required field
-    REQUIRED_FIELDS.forEach((fieldName) => {
+    // Check each field from all steps
+    getAllFields.forEach((fieldName) => {
       const value = watchedValues[fieldName]
       
       // Check if field is filled
@@ -172,27 +186,36 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
         else if (value instanceof Date) {
           filledCount++
         }
-        // For objects, check if has keys
+        // For File objects (avatar)
+        else if (value instanceof File) {
+          filledCount++
+        }
+        // For arrays (interests)
+        else if (Array.isArray(value) && value.length > 0) {
+          filledCount++
+        }
+        // For objects, check if has keys (but not empty object)
         else if (typeof value === 'object' && Object.keys(value).length > 0) {
           filledCount++
         }
       }
     })
     
-    const percentage = Math.round((filledCount / totalRequiredFields) * 100)
+    const percentage = Math.round((filledCount / getAllFields.length) * 100)
     console.log('📊 Progress calculation:', {
       filledCount,
-      totalRequiredFields,
+      totalFields: getAllFields.length,
       percentage,
-      filledFields: REQUIRED_FIELDS.filter(f => {
+      requiredFieldsFilled: REQUIRED_FIELDS.filter(f => {
         const val = watchedValues[f]
         return val !== undefined && val !== null && val !== '' && 
                (typeof val !== 'string' || val.trim() !== '')
-      })
+      }).length,
+      totalRequiredFields: REQUIRED_FIELDS.length,
     })
     
     return percentage
-  }, [watchedValues, totalRequiredFields])
+  }, [watchedValues, getAllFields, formConfig])
 
   // Autosave on step completion (debounced to avoid infinite loops)
   useEffect(() => {

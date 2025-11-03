@@ -143,14 +143,17 @@ export async function POST(request: Request) {
 
     // 3a. Upload avatar to Supabase Storage if provided
     if (data.avatar_base64) {
+      console.log('🖼️ Avatar upload detected, processing...')
       try {
         // Convert base64 to buffer
         const base64Data = data.avatar_base64.replace(/^data:image\/\w+;base64,/, '')
         const buffer = Buffer.from(base64Data, 'base64')
+        console.log('📦 Avatar buffer size:', buffer.length, 'bytes')
         
         // Generate unique filename
         const fileExt = data.avatar_base64.match(/data:image\/(\w+);base64/)?.[1] || 'jpg'
         const fileName = `${userId}/avatar.${fileExt}`
+        console.log('📁 Avatar filename:', fileName)
         
         // Upload to Supabase Storage
         const { data: uploadData, error: uploadError } = await supabase.storage
@@ -161,24 +164,36 @@ export async function POST(request: Request) {
           })
 
         if (!uploadError && uploadData) {
+          console.log('✅ Avatar uploaded successfully:', uploadData.path)
+          
           // Get public URL
           const { data: urlData } = supabase.storage
             .from('avatars')
             .getPublicUrl(fileName)
+          
+          console.log('🔗 Avatar public URL:', urlData.publicUrl)
 
           // Update profile with avatar URL
-          await (supabase
+          const { error: updateError } = await (supabase
             .from('profiles') as any)
             .update({ avatar_url: urlData.publicUrl })
             .eq('user_id', userId)
+          
+          if (updateError) {
+            console.error('❌ Failed to update profile with avatar URL:', updateError)
+          } else {
+            console.log('✅ Profile updated with avatar URL')
+          }
         } else {
-          console.warn('Avatar upload warning:', uploadError)
+          console.warn('⚠️ Avatar upload warning:', uploadError)
           // Don't fail registration if avatar upload fails
         }
       } catch (avatarErr) {
-        console.warn('Avatar upload error:', avatarErr)
+        console.error('❌ Avatar upload error:', avatarErr)
         // Don't fail registration if avatar upload fails
       }
+    } else {
+      console.log('ℹ️ No avatar provided, skipping upload')
     }
 
     // 4. Save interests if provided

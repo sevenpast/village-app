@@ -25,20 +25,21 @@ function SuccessContent() {
             Thanks for registering at Village, {firstName}!
           </h1>
 
-          <p className="text-lg mb-8 text-gray-700">
+          <p className="text-lg mb-8 text-gray-700" style={{ textDecoration: 'line-through', opacity: 0.7 }}>
             Please confirm your email by clicking on the link in the email we sent you.
           </p>
 
           {/* Troubleshooting */}
-          <div className="bg-white rounded-lg p-6 mb-8 text-left max-w-lg mx-auto shadow-sm">
-            <p className="font-semibold mb-2 text-gray-700">
+          <div className="bg-white rounded-lg p-6 mb-8 text-left max-w-lg mx-auto shadow-sm" style={{ opacity: 0.7 }}>
+            <p className="font-semibold mb-2 text-gray-700" style={{ textDecoration: 'line-through' }}>
               Didn't receive it?
             </p>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-600" style={{ textDecoration: 'line-through' }}>
               Check your spam folder, or try again in a few minutes. If all fails, shoot us an email at{' '}
               <a
                 href="mailto:hello@expatvillage.ch"
                 className="underline hover:no-underline text-village-orange"
+                style={{ textDecoration: 'line-through' }}
               >
                 hello@expatvillage.ch
               </a>

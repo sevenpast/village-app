@@ -45,7 +45,12 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   const [municipalityInfo, setMunicipalityInfo] = useState<any>(null)
   const [loadingMunicipality, setLoadingMunicipality] = useState(false)
   const [reminderSaveStatus, setReminderSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const [resourceSearchQuery, setResourceSearchQuery] = useState<string>('')
+  const [resourceSearchQuery, setResourceSearchQuery] = useState<Record<number, string>>({}) // Task-specific search queries
+  const [vaultDocuments, setVaultDocuments] = useState<any[]>([]) // Documents from vault
+  const [loadingVaultDocuments, setLoadingVaultDocuments] = useState(false)
+  const [uploadingDocument, setUploadingDocument] = useState<string | null>(null) // Track which document is being uploaded
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadTargetDoc, setUploadTargetDoc] = useState<string | null>(null) // Which document type to upload
   
   // Debounce timer ref for reminder changes
   const reminderDebounceRef = useRef<NodeJS.Timeout | null>(null)
@@ -68,6 +73,12 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       loadTaskData(selectedTask)
     }
   }, [selectedTask])
+
+  // Load vault documents when component mounts
+  useEffect(() => {
+    loadVaultDocuments()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Only load once on mount
 
   const loadTaskData = async (taskId: number) => {
     setLoading(true)
@@ -122,7 +133,87 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     setSelectedTask(taskId)
     // Reset reminder save status when switching tasks
     setReminderSaveStatus('idle')
+    // Search query is task-specific, no need to reset (each task has its own)
   }
+
+  // Get search query for current task
+  const getCurrentTaskSearchQuery = (): string => {
+    if (!selectedTask) return ''
+    return resourceSearchQuery[selectedTask] || ''
+  }
+
+  // Set search query for current task
+  const setCurrentTaskSearchQuery = (query: string) => {
+    if (!selectedTask) return
+    setResourceSearchQuery((prev) => ({
+      ...prev,
+      [selectedTask]: query,
+    }))
+
+    // Auto-open resource boxes if match found (use useEffect to check after state update)
+  }
+
+  // Auto-open resource boxes when search query changes and matches are found
+  useEffect(() => {
+    const query = getCurrentTaskSearchQuery()
+    if (!query.trim() || !selectedTask || !taskData) return
+
+    const lowerQuery = query.toLowerCase().trim()
+    let shouldOpenFAQ = false
+    let shouldOpenDocuments = false
+
+    // Check FAQ content
+    if (taskData.infobox?.faqs && Array.isArray(taskData.infobox.faqs)) {
+      const faqText = taskData.infobox.faqs
+        .map((faq: any) => `${faq.question} ${faq.answer}`)
+        .join(' ')
+        .toLowerCase()
+      if (faqText.includes(lowerQuery)) {
+        shouldOpenFAQ = true
+      }
+    } else if (taskData.infobox) {
+      // Check other infobox types (message, etc.)
+      const infoboxText = JSON.stringify(taskData.infobox).toLowerCase()
+      if (infoboxText.includes(lowerQuery)) {
+        shouldOpenFAQ = true
+      }
+    }
+
+    // Check documents content (for tasks that have documents)
+    if (selectedTask === 1 || selectedTask === 2 || selectedTask === 4) {
+      const documentsText = [
+        'Passport/ID for each family member',
+        'For families: family book, marriage certificate, birth certificates, divorce certificate',
+        'Employment contract (with length and hours)',
+        'Rental contract or landlord confirmation',
+        'Passport photos (sometimes required)',
+        'Proof of health insurance (or provide it within 3 months)',
+        'Child\'s passport or ID',
+        'Birth certificate',
+        'Residence permit (if available)',
+        'Proof of address (rental contract or confirmation)',
+        'Vaccination record',
+      ].join(' ').toLowerCase()
+
+      if (documentsText.includes(lowerQuery)) {
+        shouldOpenDocuments = true
+      }
+    }
+
+    // Auto-expand resources if matches found
+    if (shouldOpenFAQ || shouldOpenDocuments) {
+      setExpandedResources((prev) => {
+        const taskResources = prev[selectedTask] || new Set<string>()
+        const newSet = new Set(taskResources)
+        if (shouldOpenFAQ) newSet.add('faq')
+        if (shouldOpenDocuments) newSet.add('documents')
+        return {
+          ...prev,
+          [selectedTask]: newSet,
+        }
+      })
+    }
+  }, [resourceSearchQuery, selectedTask, taskData])
 
   const handleTaskComplete = async (checked: boolean) => {
     if (!selectedTask || isDone) return // Don't allow unchecking once done
@@ -235,6 +326,188 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       }
     }
   }, [])
+
+  // Load documents from vault
+  const loadVaultDocuments = async () => {
+    setLoadingVaultDocuments(true)
+    try {
+      const response = await fetch('/api/vault/list')
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success && data.documents) {
+          setVaultDocuments(data.documents)
+        } else {
+          setVaultDocuments([])
+        }
+      } else {
+        setVaultDocuments([])
+      }
+    } catch (error) {
+      console.error('Error loading vault documents:', error)
+      setVaultDocuments([])
+    } finally {
+      setLoadingVaultDocuments(false)
+    }
+  }
+
+  // Map document requirement text to vault document types
+  const mapRequirementToDocType = (requirement: string): string[] => {
+    const lower = requirement.toLowerCase()
+    
+    // Priority-based matching (more specific first)
+    if (lower.includes('passport/id') || lower.includes('passport or id') || lower.includes('passport/id')) {
+      return ['passport']
+    }
+    if (lower.includes('passport') && (lower.includes('family') || lower.includes('child'))) {
+      return ['passport']
+    }
+    if (lower.includes('passport')) {
+      return ['passport']
+    }
+    if (lower.includes('child') && lower.includes('passport')) {
+      return ['passport']
+    }
+    if (lower.includes('id') && !lower.includes('proof') && !lower.includes('insurance')) {
+      return ['passport']
+    }
+    
+    if (lower.includes('marriage certificate')) {
+      return ['marriage_certificate']
+    }
+    if (lower.includes('birth certificate')) {
+      return ['birth_certificate']
+    }
+    if (lower.includes('family book')) {
+      // Family book is a Swiss document - could be marriage or birth certificates
+      return ['marriage_certificate', 'birth_certificate']
+    }
+    if (lower.includes('divorce certificate')) {
+      return ['marriage_certificate'] // Closest match
+    }
+    
+    if (lower.includes('employment contract')) {
+      return ['employment_contract']
+    }
+    if (lower.includes('rental contract') || lower.includes('landlord confirmation')) {
+      return ['rental_contract']
+    }
+    if (lower.includes('proof of address')) {
+      return ['rental_contract'] // Usually rental contract
+    }
+    
+    if (lower.includes('vaccination record') || lower.includes('vaccination')) {
+      return ['vaccination_record']
+    }
+    
+    if (lower.includes('residence permit')) {
+      return ['residence_permit']
+    }
+    
+    if (lower.includes('health insurance') || lower.includes('proof of health insurance')) {
+      return ['insurance_documents']
+    }
+    if (lower.includes('insurance') && !lower.includes('vaccination')) {
+      return ['insurance_documents']
+    }
+    
+    // Passport photos are not stored as documents in vault
+    if (lower.includes('passport photos') || lower.includes('photos')) {
+      return []
+    }
+    
+    return []
+  }
+
+  // Check if a document requirement is fulfilled in vault
+  const isDocumentUploaded = (requirement: string): boolean => {
+    const docTypes = mapRequirementToDocType(requirement)
+    if (docTypes.length === 0) {
+      // Documents like "passport photos" are not stored in vault
+      return false
+    }
+
+    // Check if any vault document matches the types
+    // For family book, we need at least one matching document
+    if (requirement.toLowerCase().includes('family book')) {
+      // Family book typically includes multiple documents - check if we have relevant ones
+      const hasMarriageCert = vaultDocuments.some((doc) => 
+        doc.document_type?.toLowerCase() === 'marriage_certificate'
+      )
+      const hasBirthCert = vaultDocuments.some((doc) => 
+        doc.document_type?.toLowerCase() === 'birth_certificate'
+      )
+      // Family book is considered fulfilled if we have at least one relevant certificate
+      return hasMarriageCert || hasBirthCert
+    }
+
+    // For other documents, check exact type match
+    return vaultDocuments.some((doc) => {
+      if (!doc.document_type) return false
+      const docType = doc.document_type.toLowerCase()
+      return docTypes.includes(docType)
+    })
+  }
+
+  // Handle document upload
+  const handleDocumentUpload = async (requirement: string, file: File) => {
+    if (!selectedTask) return
+
+    // Determine document type from requirement
+    const docTypes = mapRequirementToDocType(requirement)
+    const docType = docTypes[0] || 'other' // Use first match or 'other'
+
+    setUploadingDocument(requirement)
+    setUploadTargetDoc(requirement)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      if (docType !== 'other') {
+        formData.append('document_type', docType)
+      }
+
+      const response = await fetch('/api/vault/upload', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Upload failed' }))
+        throw new Error(errorData.error || 'Upload failed')
+      }
+
+      const data = await response.json()
+      
+      // Reload vault documents to update UI
+      await loadVaultDocuments()
+      
+      console.log('✅ Document uploaded successfully:', data)
+    } catch (error) {
+      console.error('❌ Upload error:', error)
+      alert(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setUploadingDocument(null)
+      setUploadTargetDoc(null)
+    }
+  }
+
+  // Trigger file input for upload
+  const triggerFileUpload = (requirement: string) => {
+    setUploadTargetDoc(requirement)
+    fileInputRef.current?.click()
+  }
+
+  // Handle file input change
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file && uploadTargetDoc) {
+      handleDocumentUpload(uploadTargetDoc, file)
+      // Reset input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
 
   const loadMunicipalityInfo = async (municipalityName: string) => {
     if (!municipalityName) return
@@ -937,15 +1210,16 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     return <>{elements}</>
   }
 
-  // Filter FAQ content based on search query
+  // Filter FAQ content based on search query (current task only)
   const filterFAQContent = (content: JSX.Element | null): JSX.Element | null => {
-    if (!resourceSearchQuery.trim() || !content) return content
+    const query = getCurrentTaskSearchQuery()
+    if (!query.trim() || !content) return content
 
-    const query = resourceSearchQuery.toLowerCase().trim()
+    const lowerQuery = query.toLowerCase().trim()
     const contentText = extractTextFromElement(content).toLowerCase()
 
     // Simple text matching - if query found in content, return it
-    if (contentText.includes(query)) {
+    if (contentText.includes(lowerQuery)) {
       return content
     }
 
@@ -953,20 +1227,81 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     return null
   }
 
-  // Filter documents content based on search query
+  // Filter documents content based on search query (current task only)
   const filterDocumentsContent = (content: JSX.Element | null): JSX.Element | null => {
-    if (!resourceSearchQuery.trim() || !content) return content
+    const query = getCurrentTaskSearchQuery()
+    if (!query.trim() || !content) return content
 
-    const query = resourceSearchQuery.toLowerCase().trim()
+    const lowerQuery = query.toLowerCase().trim()
     const contentText = extractTextFromElement(content).toLowerCase()
 
     // Simple text matching - if query found in content, return it
-    if (contentText.includes(query)) {
+    if (contentText.includes(lowerQuery)) {
       return content
     }
 
     // If not found, return null (no match)
     return null
+  }
+
+  // Render document items in a table format
+  const renderDocumentsTable = (requirements: string[]) => {
+    return (
+      <table className="w-full border-collapse">
+        <tbody>
+          {requirements.map((requirement, index) => {
+            const isUploaded = isDocumentUploaded(requirement)
+            const isUploading = uploadingDocument === requirement
+
+            return (
+              <tr key={requirement} className="border-b border-transparent hover:bg-gray-50 transition-colors">
+                <td className="py-3 align-top" style={{ width: '24px', paddingRight: '8px' }}>
+                  <span style={{ color: '#2D5016', fontSize: '18px', lineHeight: '1.2' }}>•</span>
+                </td>
+                <td className="py-3 align-middle" style={{ paddingRight: '16px' }}>
+                  <span className="text-sm" style={{ color: '#374151' }}>{requirement}</span>
+                </td>
+                <td className="py-3 align-middle text-right" style={{ width: '120px', whiteSpace: 'nowrap' }}>
+                  {isUploaded ? (
+                    <div
+                      className="w-7 h-7 rounded-full flex items-center justify-center mx-auto transition-all hover:scale-110"
+                      style={{ backgroundColor: '#22C55E' }}
+                      title="Document uploaded to vault"
+                    >
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="white"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => triggerFileUpload(requirement)}
+                      disabled={isUploading}
+                      className="px-4 py-1.5 text-xs font-semibold rounded-lg transition-all hover:opacity-90 hover:shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
+                      style={{
+                        backgroundColor: isUploading ? '#9CA3AF' : '#2D5016',
+                        color: '#FFFFFF',
+                        minWidth: '80px',
+                      }}
+                    >
+                      {isUploading ? 'Uploading...' : 'Upload'}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    )
   }
 
   const renderDocuments = () => {
@@ -974,6 +1309,15 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
 
     // Task 1 & 2: Gemeinde documents
     if (selectedTask === 1 || selectedTask === 2) {
+      const documentRequirements = [
+        'Passport/ID for each family member',
+        'For families: family book, marriage certificate, birth certificates, divorce certificate',
+        'Employment contract (with length and hours)',
+        'Rental contract or landlord confirmation',
+        'Passport photos (sometimes required)',
+        'Proof of health insurance (or provide it within 3 months)',
+      ]
+
       return (
         <div className="space-y-3 text-sm" style={{ color: '#374151' }}>
           <p className="leading-relaxed">
@@ -982,32 +1326,9 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           <p className="leading-relaxed">
             Upload them to the Document Vault for safe keeping and easy access in later tasks.
           </p>
-          <ul className="space-y-2 ml-4">
-            <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
-              <span>Passport/ID for each family member</span>
-            </li>
-            <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
-              <span>For families: family book, marriage certificate, birth certificates, divorce certificate</span>
-            </li>
-            <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
-              <span>Employment contract (with length and hours)</span>
-            </li>
-            <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
-              <span>Rental contract or landlord confirmation</span>
-            </li>
-            <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
-              <span>Passport photos (sometimes required)</span>
-            </li>
-            <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
-              <span>Proof of health insurance (or provide it within 3 months)</span>
-            </li>
-          </ul>
+          <div className="mt-4">
+            {renderDocumentsTable(documentRequirements)}
+          </div>
           <p className="leading-relaxed mt-4">
             To check for specific requirements for{' '}
             <strong style={{ color: '#2D5016' }}>
@@ -1035,6 +1356,14 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
 
     // Task 4: School documents
     if (selectedTask === 4) {
+      const documentRequirements = [
+        'Child\'s passport or ID',
+        'Birth certificate',
+        'Residence permit (if available)',
+        'Proof of address (rental contract or confirmation)',
+        'Vaccination record',
+      ]
+
       return (
         <div className="space-y-3 text-sm" style={{ color: '#374151' }}>
           <p className="leading-relaxed">
@@ -1043,28 +1372,9 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           <p className="leading-relaxed">
             Upload them to the Document Vault for safe keeping and easy access in later tasks.
           </p>
-          <ul className="space-y-2 ml-4">
-            <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
-              <span>Child&apos;s passport or ID</span>
-            </li>
-            <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
-              <span>Birth certificate</span>
-            </li>
-            <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
-              <span>Residence permit (if available)</span>
-            </li>
-            <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
-              <span>Proof of address (rental contract or confirmation)</span>
-            </li>
-            <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
-              <span>Vaccination record</span>
-            </li>
-          </ul>
+          <div className="mt-4">
+            {renderDocumentsTable(documentRequirements)}
+          </div>
           <p className="leading-relaxed mt-4">
             To check for specific requirements for{' '}
             <strong style={{ color: '#2D5016' }}>
@@ -1347,8 +1657,8 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                     <input
                       type="text"
                       placeholder="Search Keywords"
-                      value={resourceSearchQuery}
-                      onChange={(e) => setResourceSearchQuery(e.target.value)}
+                      value={getCurrentTaskSearchQuery()}
+                      onChange={(e) => setCurrentTaskSearchQuery(e.target.value)}
                       className="w-full px-4 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50"
                       style={{
                         borderColor: '#D1D5DB',
@@ -1394,7 +1704,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                     >
                       {filterFAQContent(renderInfobox()) || (
                         <p className="text-sm" style={{ color: '#9CA3AF' }}>
-                          No results found for &quot;{resourceSearchQuery}&quot;
+                          No results found for &quot;{getCurrentTaskSearchQuery()}&quot;
                         </p>
                       )}
                     </div>
@@ -1445,7 +1755,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                         >
                           {filterDocumentsContent(renderDocuments()) || (
                             <p className="text-sm" style={{ color: '#9CA3AF' }}>
-                              No results found for &quot;{resourceSearchQuery}&quot;
+                              No results found for &quot;{getCurrentTaskSearchQuery()}&quot;
                             </p>
                           )}
                         </div>
@@ -1468,6 +1778,15 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           )}
         </div>
       </div>
+
+      {/* Hidden file input for document uploads */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.jpg,.jpeg,.png,.heic"
+        className="hidden"
+        onChange={handleFileInputChange}
+      />
 
       {/* Footer */}
       <RegistrationFooter />
