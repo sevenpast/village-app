@@ -271,7 +271,7 @@ export async function GET(
             {
               question: 'How do I find apartments in Switzerland?',
               answer:
-                'Most listings appear on large online portals like Flatfox, Homegate, ImmoScout24, Comparis, and local Facebook groups.\nA popular paid newsletter that offers listings before they hit the open market is immomailing.',
+                'Most listings appear on large online portals like Flatfox, Homegate, ImmoScout24, Comparis, and local Facebook groups.\n\nA popular paid newsletter that offers listings before they hit the open market is immomailing. [link to sign up and keep track of clicks to monetize]',
             },
             {
               question: 'Should I go through a real estate agency?',

@@ -40,10 +40,12 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   const [taskStatus, setTaskStatus] = useState<Record<number, boolean>>({}) // Track done status per task
   const [reminderDays, setReminderDays] = useState<Record<number, number>>({}) // Track reminder days per task
   const [completedDates, setCompletedDates] = useState<Record<number, string>>({}) // Track completion dates
-  const [expandedResources, setExpandedResources] = useState<Set<string>>(new Set())
+  const [expandedResources, setExpandedResources] = useState<Record<number, Set<string>>>({})
+  const [expandedFAQs, setExpandedFAQs] = useState<Record<number, Set<number>>>({}) // Task ID -> Set of FAQ indices
   const [municipalityInfo, setMunicipalityInfo] = useState<any>(null)
   const [loadingMunicipality, setLoadingMunicipality] = useState(false)
   const [reminderSaveStatus, setReminderSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [resourceSearchQuery, setResourceSearchQuery] = useState<string>('')
   
   // Debounce timer ref for reminder changes
   const reminderDebounceRef = useRef<NodeJS.Timeout | null>(null)
@@ -256,15 +258,114 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   }
 
   const toggleResource = (resourceType: string) => {
+    if (!selectedTask) return
+    
     setExpandedResources((prev) => {
-      const newSet = new Set(prev)
+      const taskResources = prev[selectedTask] || new Set<string>()
+      const newSet = new Set(taskResources)
+      
       if (newSet.has(resourceType)) {
         newSet.delete(resourceType)
       } else {
         newSet.add(resourceType)
       }
-      return newSet
+      
+      return {
+        ...prev,
+        [selectedTask]: newSet,
+      }
     })
+  }
+  
+  // Get expanded resources for current task
+  const getCurrentTaskExpandedResources = (): Set<string> => {
+    if (!selectedTask) return new Set()
+    return expandedResources[selectedTask] || new Set()
+  }
+
+  // Get expanded FAQs for current task
+  const getCurrentTaskExpandedFAQs = (): Set<number> => {
+    if (!selectedTask) return new Set()
+    return expandedFAQs[selectedTask] || new Set()
+  }
+
+  // Toggle individual FAQ question
+  const toggleFAQ = (faqIndex: number) => {
+    if (!selectedTask) return
+
+    setExpandedFAQs((prev) => {
+      const taskFAQs = prev[selectedTask] || new Set<number>()
+      const newSet = new Set(taskFAQs)
+
+      if (newSet.has(faqIndex)) {
+        newSet.delete(faqIndex)
+      } else {
+        newSet.add(faqIndex)
+      }
+
+      return {
+        ...prev,
+        [selectedTask]: newSet,
+      }
+    })
+  }
+
+  const renderFAQAsCollapsibles = (faqs: Array<{ question: string; answer: string }>, introText?: string) => {
+    if (!faqs || faqs.length === 0) return null
+
+    const expandedFAQs = getCurrentTaskExpandedFAQs()
+
+    return (
+      <div className="space-y-4">
+        {/* Intro text if provided */}
+        {introText && (
+          <p className="text-sm leading-relaxed mb-4" style={{ color: '#374151' }}>
+            {introText}
+          </p>
+        )}
+
+        {/* Each FAQ as collapsible */}
+        {faqs.map((faq, index) => (
+          <div key={index} className="border rounded-lg" style={{ borderColor: '#E5E7EB' }}>
+            {/* Question - Collapsible Button */}
+            <button
+              onClick={() => toggleFAQ(index)}
+              className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-50 transition-colors rounded-lg"
+            >
+              <span className="font-semibold text-base" style={{ color: '#2D5016' }}>
+                {faq.question}
+              </span>
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#2D5016"
+                strokeWidth="2"
+                className="transition-transform flex-shrink-0 ml-2"
+                style={{
+                  transform: expandedFAQs.has(index) ? 'rotate(180deg)' : 'rotate(0deg)',
+                }}
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+
+            {/* Answer - Collapsible Content */}
+            {expandedFAQs.has(index) && (
+              <div className="px-4 pb-4 pt-0">
+                <div
+                  className="text-sm leading-relaxed pt-2"
+                  style={{ color: '#374151' }}
+                >
+                  {formatAnswerText(faq.answer)}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    )
   }
 
   const renderInfobox = () => {
@@ -272,8 +373,104 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
 
     const { infobox } = taskData
 
-    // Gemeinde Registration (Task 2)
+    // Gemeinde Registration (Task 2) - Render with collapsibles and opening hours
     if (infobox.type === 'gemeinde_registration') {
+      if (infobox.faqs && Array.isArray(infobox.faqs)) {
+        const introText = `The following information is relevant to you since you are a citizen of ${taskData.user_data?.country_name || infobox.country_name || 'your country'}.`
+        const expandedFAQs = getCurrentTaskExpandedFAQs()
+        
+        return (
+          <div className="space-y-4">
+            {introText && (
+              <p className="text-sm leading-relaxed mb-4" style={{ color: '#374151' }}>
+                {introText}
+              </p>
+            )}
+            
+            {infobox.faqs.map((faq: any, index: number) => (
+              <div key={index} className="border rounded-lg" style={{ borderColor: '#E5E7EB' }}>
+                <button
+                  onClick={() => toggleFAQ(index)}
+                  className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-50 transition-colors rounded-lg"
+                >
+                  <span className="font-semibold text-base" style={{ color: '#2D5016' }}>
+                    {faq.question}
+                  </span>
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#2D5016"
+                    strokeWidth="2"
+                    className="transition-transform flex-shrink-0 ml-2"
+                    style={{
+                      transform: expandedFAQs.has(index) ? 'rotate(180deg)' : 'rotate(0deg)',
+                    }}
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
+                
+                {expandedFAQs.has(index) && (
+                  <div className="px-4 pb-4 pt-0">
+                    <div
+                      className="text-sm leading-relaxed pt-2"
+                      style={{ color: '#374151' }}
+                    >
+                      {formatAnswerText(faq.answer)}
+                    </div>
+                    
+                    {/* Show opening hours after "Where do I go to register?" */}
+                    {faq.show_opening_hours && taskData.user_data?.municipality_name && (
+                      <div className="mt-3 p-3 rounded-md" style={{ backgroundColor: '#F9FAFB', border: '1px solid #E5E7EB' }}>
+                        <h5 className="font-semibold text-sm mb-2" style={{ color: '#2D5016' }}>
+                          {taskData.user_data.municipality_name} Office Hours:
+                        </h5>
+                        {loadingMunicipality ? (
+                          <p className="text-xs text-gray-500">Loading opening hours...</p>
+                        ) : municipalityInfo?.einwohnerdienste?.formatted_hours ? (
+                          <>
+                            <p className="text-sm whitespace-pre-line" style={{ color: '#374151' }}>
+                              {municipalityInfo.einwohnerdienste.formatted_hours}
+                            </p>
+                            {municipalityInfo.einwohnerdienste.phone && (
+                              <p className="text-xs mt-2" style={{ color: '#6B7280' }}>
+                                Phone: {municipalityInfo.einwohnerdienste.phone}
+                              </p>
+                            )}
+                            {municipalityInfo.einwohnerdienste.email && (
+                              <p className="text-xs" style={{ color: '#6B7280' }}>
+                                Email:{' '}
+                                <a
+                                  href={`mailto:${municipalityInfo.einwohnerdienste.email}`}
+                                  className="text-blue-600 hover:text-blue-800 underline"
+                                >
+                                  {municipalityInfo.einwohnerdienste.email}
+                                </a>
+                              </p>
+                            )}
+                            <p className="text-xs mt-2 italic" style={{ color: '#9CA3AF' }}>
+                              (Last checked: {new Date(municipalityInfo.last_checked).toLocaleDateString('en-GB')})
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-sm" style={{ color: '#6B7280' }}>
+                            Monday - Friday: 08:00 - 12:00, 14:00 - 17:00
+                            <br />
+                            <span className="text-xs italic">(Please verify with your local municipality office)</span>
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )
+      }
+      // Fallback to old component if no FAQs
       return (
         <GemeindeRegistrationInfobox
           infobox={infobox}
@@ -284,93 +481,115 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
 
     // Housing (Task 3)
     if (infobox.type === 'housing') {
-      return (
-        <div className="space-y-4">
-          {infobox.faqs?.map((faq: any, index: number) => (
-            <div key={index} className="space-y-2">
-              <h4 className="font-semibold text-base mt-4" style={{ color: '#2D5016' }}>
-                {faq.question}
-              </h4>
-              <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: '#374151' }}>
-                {faq.answer.split('→').map((part: string, partIndex: number) => {
-                  if (partIndex === 0) return part
-                  return (
-                    <span key={partIndex}>
-                      →{part}
-                    </span>
-                  )
-                })}
-              </p>
-              {index < infobox.faqs.length - 1 && (
-                <div className="border-t my-4" style={{ borderColor: '#E5E7EB' }} />
-              )}
-            </div>
-          ))}
-        </div>
-      )
+      if (infobox.faqs && Array.isArray(infobox.faqs)) {
+        return renderFAQAsCollapsibles(infobox.faqs)
+      }
+      return null
     }
 
     // School Registration (Task 4)
     if (infobox.type === 'school_registration') {
-      return (
-        <div className="space-y-4">
-          {infobox.faqs?.map((faq: any, index: number) => (
-            <div key={index} className="space-y-2">
-              <h4 className="font-semibold text-base mt-4" style={{ color: '#2D5016' }}>
-                {faq.question}
-              </h4>
-              <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: '#374151' }}>
-                {faq.answer.split('[change profile]').map((part: string, partIndex: number) => {
-                  if (partIndex === 0) return part
-                  return (
-                    <span key={partIndex}>
-                      <button className="text-blue-600 hover:text-blue-800 underline">change profile</button>
+      if (infobox.faqs && Array.isArray(infobox.faqs)) {
+        // Process answers that contain [change profile] links
+        const processedFAQs = infobox.faqs.map((faq: any) => {
+          // Check if answer contains [change profile] - we'll handle this in render
+          return faq
+        })
+        return (
+          <div className="space-y-4">
+            {processedFAQs.map((faq: any, index: number) => {
+              const expandedFAQs = getCurrentTaskExpandedFAQs()
+              return (
+                <div key={index} className="border rounded-lg" style={{ borderColor: '#E5E7EB' }}>
+                  <button
+                    onClick={() => toggleFAQ(index)}
+                    className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-50 transition-colors rounded-lg"
+                  >
+                    <span className="font-semibold text-base" style={{ color: '#2D5016' }}>
+                      {faq.question}
                     </span>
-                  )
-                })}
-              </p>
-              {index < infobox.faqs.length - 1 && (
-                <div className="border-t my-4" style={{ borderColor: '#E5E7EB' }} />
-              )}
-            </div>
-          ))}
-        </div>
-      )
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#2D5016"
+                      strokeWidth="2"
+                      className="transition-transform flex-shrink-0 ml-2"
+                      style={{
+                        transform: expandedFAQs.has(index) ? 'rotate(180deg)' : 'rotate(0deg)',
+                      }}
+                    >
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+                  {expandedFAQs.has(index) && (
+                    <div className="px-4 pb-4 pt-0">
+                      <div
+                        className="text-sm leading-relaxed pt-2"
+                        style={{ color: '#374151' }}
+                      >
+                        {formatAnswerText(faq.answer, { handleChangeProfile: true })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )
+      }
+      return null
     }
 
     // Permit Card (Task 5)
     if (infobox.type === 'permit_card') {
-      return (
-        <div className="space-y-4">
-          {infobox.faqs?.map((faq: any, index: number) => (
-            <div key={index} className="space-y-2">
-              <h4 className="font-semibold text-base mt-4" style={{ color: '#2D5016' }}>
-                {faq.question}
-              </h4>
-              <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: '#374151' }}>
-                {faq.answer.split('(see task 2)').map((part: string, partIndex: number) => {
-                  if (partIndex === 0) return part
-                  return (
-                    <span key={partIndex}>
-                      (
-                      <button
-                        onClick={() => handleTaskClick(2)}
-                        className="text-blue-600 hover:text-blue-800 underline"
-                      >
-                        see task 2
-                      </button>
-                      )
+      if (infobox.faqs && Array.isArray(infobox.faqs)) {
+        return (
+          <div className="space-y-4">
+            {infobox.faqs.map((faq: any, index: number) => {
+              const expandedFAQs = getCurrentTaskExpandedFAQs()
+              return (
+                <div key={index} className="border rounded-lg" style={{ borderColor: '#E5E7EB' }}>
+                  <button
+                    onClick={() => toggleFAQ(index)}
+                    className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-50 transition-colors rounded-lg"
+                  >
+                    <span className="font-semibold text-base" style={{ color: '#2D5016' }}>
+                      {faq.question}
                     </span>
-                  )
-                })}
-              </p>
-              {index < infobox.faqs.length - 1 && (
-                <div className="border-t my-4" style={{ borderColor: '#E5E7EB' }} />
-              )}
-            </div>
-          ))}
-        </div>
-      )
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#2D5016"
+                      strokeWidth="2"
+                      className="transition-transform flex-shrink-0 ml-2"
+                      style={{
+                        transform: expandedFAQs.has(index) ? 'rotate(180deg)' : 'rotate(0deg)',
+                      }}
+                    >
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+                  {expandedFAQs.has(index) && (
+                    <div className="px-4 pb-4 pt-0">
+                      <div
+                        className="text-sm leading-relaxed pt-2"
+                        style={{ color: '#374151' }}
+                      >
+                        {formatAnswerText(faq.answer, { handleSeeTask: true })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )
+      }
+      return null
     }
 
     // No country provided
@@ -400,86 +619,116 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       )
     }
 
-    // Visa exempt (e.g., USA, Canada)
+    // Visa exempt (e.g., USA, Canada) - Task 1
     if (infobox.type === 'visa_exempt') {
-      return (
-        <div className="space-y-4">
-          {infobox.faqs?.map((faq: any, index: number) => (
-            <div key={index} className="space-y-2">
-              <h4 className="font-semibold text-base mt-4" style={{ color: '#2D5016' }}>
-                {faq.question}
-              </h4>
-              <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: '#374151' }}>
-                {faq.answer.split('→ Next Step:').map((part: string, partIndex: number) => {
-                  if (partIndex === 0) return part
-                  // Extract task number from "Task 2 - Register at Gemeinde"
-                  const taskMatch = part.match(/Task (\d+)/)
-                  const taskNumber = taskMatch ? parseInt(taskMatch[1]) : null
-                  return (
-                    <span key={partIndex}>
-                      →{' '}
-                      {taskNumber ? (
-                        <button
-                          onClick={() => handleTaskClick(taskNumber)}
-                          className="text-blue-600 hover:text-blue-800 underline font-medium"
-                        >
-                          Next Step: {part.trim()}
-                        </button>
-                      ) : (
-                        `Next Step: ${part.trim()}`
-                      )}
-                    </span>
-                  )
-                })}
+      if (infobox.faqs && Array.isArray(infobox.faqs)) {
+        const introText = `The following information is relevant to you since you are a citizen of ${infobox.country_name || taskData.user_data?.country_name || 'your country'}.`
+        return (
+          <div className="space-y-4">
+            {introText && (
+              <p className="text-sm leading-relaxed mb-4" style={{ color: '#374151' }}>
+                {introText}
               </p>
-              {index < infobox.faqs.length - 1 && (
-                <div className="border-t my-4" style={{ borderColor: '#E5E7EB' }} />
-              )}
-            </div>
-          ))}
-        </div>
-      )
+            )}
+            {infobox.faqs.map((faq: any, index: number) => {
+              const expandedFAQs = getCurrentTaskExpandedFAQs()
+              return (
+                <div key={index} className="border rounded-lg" style={{ borderColor: '#E5E7EB' }}>
+                  <button
+                    onClick={() => toggleFAQ(index)}
+                    className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-50 transition-colors rounded-lg"
+                  >
+                    <span className="font-semibold text-base" style={{ color: '#2D5016' }}>
+                      {faq.question}
+                    </span>
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#2D5016"
+                      strokeWidth="2"
+                      className="transition-transform flex-shrink-0 ml-2"
+                      style={{
+                        transform: expandedFAQs.has(index) ? 'rotate(180deg)' : 'rotate(0deg)',
+                      }}
+                    >
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+                  {expandedFAQs.has(index) && (
+                    <div className="px-4 pb-4 pt-0">
+                      <div
+                        className="text-sm leading-relaxed pt-2"
+                        style={{ color: '#374151' }}
+                      >
+                        {formatAnswerText(faq.answer, { handleNextStep: true })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )
+      }
+      return null
     }
 
-    // Visa required (e.g., India, China)
+    // Visa required (e.g., India, China) - Task 1
     if (infobox.type === 'visa_required') {
-      return (
-        <div className="space-y-4">
-          {infobox.faqs?.map((faq: any, index: number) => (
-            <div key={index} className="space-y-2">
-              <h4 className="font-semibold text-base mt-4" style={{ color: '#2D5016' }}>
-                {faq.question}
-              </h4>
-              <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: '#374151' }}>
-                {faq.answer.split('→ Next Step:').map((part: string, partIndex: number) => {
-                  if (partIndex === 0) return part
-                  // Extract task number from "Task 2 - Register at Gemeinde"
-                  const taskMatch = part.match(/Task (\d+)/)
-                  const taskNumber = taskMatch ? parseInt(taskMatch[1]) : null
-                  return (
-                    <span key={partIndex}>
-                      →{' '}
-                      {taskNumber ? (
-                        <button
-                          onClick={() => handleTaskClick(taskNumber)}
-                          className="text-blue-600 hover:text-blue-800 underline font-medium"
-                        >
-                          Next Step: {part.trim()}
-                        </button>
-                      ) : (
-                        `Next Step: ${part.trim()}`
-                      )}
-                    </span>
-                  )
-                })}
+      if (infobox.faqs && Array.isArray(infobox.faqs)) {
+        const introText = `The following information is relevant to you since you are a citizen of ${infobox.country_name || taskData.user_data?.country_name || 'your country'}.`
+        return (
+          <div className="space-y-4">
+            {introText && (
+              <p className="text-sm leading-relaxed mb-4" style={{ color: '#374151' }}>
+                {introText}
               </p>
-              {index < infobox.faqs.length - 1 && (
-                <div className="border-t my-4" style={{ borderColor: '#E5E7EB' }} />
-              )}
-            </div>
-          ))}
-        </div>
-      )
+            )}
+            {infobox.faqs.map((faq: any, index: number) => {
+              const expandedFAQs = getCurrentTaskExpandedFAQs()
+              return (
+                <div key={index} className="border rounded-lg" style={{ borderColor: '#E5E7EB' }}>
+                  <button
+                    onClick={() => toggleFAQ(index)}
+                    className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-50 transition-colors rounded-lg"
+                  >
+                    <span className="font-semibold text-base" style={{ color: '#2D5016' }}>
+                      {faq.question}
+                    </span>
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#2D5016"
+                      strokeWidth="2"
+                      className="transition-transform flex-shrink-0 ml-2"
+                      style={{
+                        transform: expandedFAQs.has(index) ? 'rotate(180deg)' : 'rotate(0deg)',
+                      }}
+                    >
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+                  {expandedFAQs.has(index) && (
+                    <div className="px-4 pb-4 pt-0">
+                      <div
+                        className="text-sm leading-relaxed pt-2"
+                        style={{ color: '#374151' }}
+                      >
+                        {formatAnswerText(faq.answer, { handleNextStep: true })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )
+      }
+      return null
     }
 
     // EU/EFTA citizens
@@ -529,6 +778,197 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     return renderInfobox()
   }
 
+  // Helper function to extract text from React element recursively
+  const extractTextFromElement = (element: any): string => {
+    if (typeof element === 'string') return element
+    if (typeof element === 'number') return String(element)
+    if (!element) return ''
+    
+    if (Array.isArray(element)) {
+      return element.map(extractTextFromElement).join(' ')
+    }
+    
+    if (element.props && element.props.children) {
+      return extractTextFromElement(element.props.children)
+    }
+    
+    return ''
+  }
+
+  // Helper function to convert > to bulletpoints (•) in text and handle special formatting
+  const formatAnswerText = (text: string, options?: { 
+    handleChangeProfile?: boolean
+    handleSeeTask?: boolean
+    handleNextStep?: boolean
+  }): JSX.Element => {
+    // First, handle special link patterns if needed
+    let processedText = text
+    
+    // Handle [change profile] links
+    if (options?.handleChangeProfile) {
+      processedText = processedText.replace(/\[change profile\]/g, '[change profile]')
+    }
+    
+    // Handle (see task X) links
+    if (options?.handleSeeTask) {
+      processedText = processedText.replace(/\(see task (\d+)\)/g, '(see task $1)')
+    }
+    
+    // Handle → Next Step: with task links
+    if (options?.handleNextStep) {
+      // This will be handled specially below
+    }
+    
+    // Split by lines and process each line
+    const lines = processedText.split('\n')
+    const elements: JSX.Element[] = []
+    
+    lines.forEach((line, lineIndex) => {
+      // Check if line starts with >
+      if (line.trim().startsWith('>')) {
+        // Remove > and add bulletpoint
+        let bulletText = line.replace(/^>\s*/, '• ')
+        
+        // Process special links within bullet points
+        if (options?.handleChangeProfile) {
+          const parts = bulletText.split('[change profile]').map((part: string, partIndex: number) => {
+            if (partIndex === 0) return part
+            return (
+              <span key={partIndex}>
+                <button className="text-blue-600 hover:text-blue-800 underline">change profile</button>
+                {part}
+              </span>
+            )
+          })
+          elements.push(
+            <span key={lineIndex} className="block pl-4">
+              {parts}
+            </span>
+          )
+        } else {
+          elements.push(
+            <span key={lineIndex} className="block pl-4">
+              {bulletText}
+            </span>
+          )
+        }
+      } else if (line.trim() === '') {
+        // Empty line
+        elements.push(<br key={lineIndex} />)
+      } else {
+        // Regular line - check for special formatting
+        let processedLine: JSX.Element | string = line
+        
+        // Handle → Next Step: with task links
+        if (options?.handleNextStep && line.includes('→ Next Step:')) {
+          const parts = line.split('→ Next Step:').map((part: string, partIndex: number) => {
+            if (partIndex === 0) return part
+            const taskMatch = part.match(/Task (\d+)/)
+            const taskNumber = taskMatch ? parseInt(taskMatch[1]) : null
+            return (
+              <span key={partIndex}>
+                →{' '}
+                {taskNumber ? (
+                  <button
+                    onClick={() => handleTaskClick(taskNumber)}
+                    className="text-blue-600 hover:text-blue-800 underline font-medium"
+                  >
+                    Next Step: {part.trim()}
+                  </button>
+                ) : (
+                  `Next Step: ${part.trim()}`
+                )}
+              </span>
+            )
+          })
+          processedLine = <>{parts}</>
+        } else if (line.includes('(see task')) {
+          // Handle (see task X) links
+          const parts = line.split('(see task 2)').map((part: string, partIndex: number) => {
+            if (partIndex === 0) return part
+            return (
+              <span key={partIndex}>
+                (
+                <button
+                  onClick={() => handleTaskClick(2)}
+                  className="text-blue-600 hover:text-blue-800 underline"
+                >
+                  see task 2
+                </button>
+                )
+                {part}
+              </span>
+            )
+          })
+          processedLine = <>{parts}</>
+        } else if (line.includes('[change profile]')) {
+          // Handle [change profile] links
+          const parts = line.split('[change profile]').map((part: string, partIndex: number) => {
+            if (partIndex === 0) return part
+            return (
+              <span key={partIndex}>
+                <button className="text-blue-600 hover:text-blue-800 underline">change profile</button>
+                {part}
+              </span>
+            )
+          })
+          processedLine = <>{parts}</>
+        } else {
+          // Handle → arrows (regular, not "Next Step")
+          const parts = line.split('→').map((part: string, partIndex: number) => {
+            if (partIndex === 0) return part
+            return (
+              <span key={partIndex}>
+                →{part}
+              </span>
+            )
+          })
+          processedLine = <>{parts}</>
+        }
+        
+        elements.push(
+          <span key={lineIndex} className="block">
+            {processedLine}
+          </span>
+        )
+      }
+    })
+    
+    return <>{elements}</>
+  }
+
+  // Filter FAQ content based on search query
+  const filterFAQContent = (content: JSX.Element | null): JSX.Element | null => {
+    if (!resourceSearchQuery.trim() || !content) return content
+
+    const query = resourceSearchQuery.toLowerCase().trim()
+    const contentText = extractTextFromElement(content).toLowerCase()
+
+    // Simple text matching - if query found in content, return it
+    if (contentText.includes(query)) {
+      return content
+    }
+
+    // If not found, return null (no match)
+    return null
+  }
+
+  // Filter documents content based on search query
+  const filterDocumentsContent = (content: JSX.Element | null): JSX.Element | null => {
+    if (!resourceSearchQuery.trim() || !content) return content
+
+    const query = resourceSearchQuery.toLowerCase().trim()
+    const contentText = extractTextFromElement(content).toLowerCase()
+
+    // Simple text matching - if query found in content, return it
+    if (contentText.includes(query)) {
+      return content
+    }
+
+    // If not found, return null (no match)
+    return null
+  }
+
   const renderDocuments = () => {
     if (!selectedTask || !taskData) return null
 
@@ -544,27 +984,27 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           </p>
           <ul className="space-y-2 ml-4">
             <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>&gt;</span>
+              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
               <span>Passport/ID for each family member</span>
             </li>
             <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>&gt;</span>
+              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
               <span>For families: family book, marriage certificate, birth certificates, divorce certificate</span>
             </li>
             <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>&gt;</span>
+              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
               <span>Employment contract (with length and hours)</span>
             </li>
             <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>&gt;</span>
+              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
               <span>Rental contract or landlord confirmation</span>
             </li>
             <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>&gt;</span>
+              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
               <span>Passport photos (sometimes required)</span>
             </li>
             <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>&gt;</span>
+              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
               <span>Proof of health insurance (or provide it within 3 months)</span>
             </li>
           </ul>
@@ -605,23 +1045,23 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           </p>
           <ul className="space-y-2 ml-4">
             <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>&gt;</span>
+              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
               <span>Child&apos;s passport or ID</span>
             </li>
             <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>&gt;</span>
+              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
               <span>Birth certificate</span>
             </li>
             <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>&gt;</span>
+              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
               <span>Residence permit (if available)</span>
             </li>
             <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>&gt;</span>
+              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
               <span>Proof of address (rental contract or confirmation)</span>
             </li>
             <li className="flex items-start">
-              <span className="mr-2" style={{ color: '#2D5016' }}>&gt;</span>
+              <span className="mr-2" style={{ color: '#2D5016' }}>•</span>
               <span>Vaccination record</span>
             </li>
           </ul>
@@ -898,10 +1338,27 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                   </div>
                 </div>
 
-                {/* 4. Zeile: Titel "Resources" */}
-                <h2 className="text-xl font-bold mb-4" style={{ color: '#2D5016' }}>
-                  Resources
-                </h2>
+                {/* 4. Zeile: Titel "Resources" + Search Box */}
+                <div className="flex items-center gap-4 mb-4">
+                  <h2 className="text-xl font-bold" style={{ color: '#2D5016' }}>
+                    Resources
+                  </h2>
+                  <div className="flex-1 max-w-xs">
+                    <input
+                      type="text"
+                      placeholder="Search Keywords"
+                      value={resourceSearchQuery}
+                      onChange={(e) => setResourceSearchQuery(e.target.value)}
+                      className="w-full px-4 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-opacity-50"
+                      style={{
+                        borderColor: '#D1D5DB',
+                        backgroundColor: '#FFFFFF',
+                        color: '#374151',
+                        focusRingColor: '#2D5016',
+                      }}
+                    />
+                  </div>
+                </div>
 
                 {/* 5. Zeile: Box "FAQ / Good to Know" (collapsible) */}
                 <div>
@@ -922,7 +1379,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                       strokeWidth="2"
                       className="transition-transform"
                       style={{
-                        transform: expandedResources.has('faq') ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transform: getCurrentTaskExpandedResources().has('faq') ? 'rotate(180deg)' : 'rotate(0deg)',
                       }}
                     >
                       <polyline points="6 9 12 15 18 9" />
@@ -930,16 +1387,20 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                   </button>
                   
                   {/* FAQ Content */}
-                  {expandedResources.has('faq') && taskData.infobox && (
+                  {getCurrentTaskExpandedResources().has('faq') && taskData.infobox && (
                     <div
                       className="mt-2 px-4 py-4 bg-white rounded-lg border"
                       style={{ borderColor: '#D1D5DB' }}
                     >
-                      {renderInfobox()}
+                      {filterFAQContent(renderInfobox()) || (
+                        <p className="text-sm" style={{ color: '#9CA3AF' }}>
+                          No results found for &quot;{resourceSearchQuery}&quot;
+                        </p>
+                      )}
                     </div>
                   )}
                   
-                  {expandedResources.has('faq') && !taskData.infobox && (
+                  {getCurrentTaskExpandedResources().has('faq') && !taskData.infobox && (
                     <div
                       className="mt-2 px-4 py-4 bg-white rounded-lg border"
                       style={{ borderColor: '#D1D5DB' }}
@@ -969,7 +1430,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                           strokeWidth="2"
                           className="transition-transform"
                           style={{
-                            transform: expandedResources.has('documents') ? 'rotate(180deg)' : 'rotate(0deg)',
+                            transform: getCurrentTaskExpandedResources().has('documents') ? 'rotate(180deg)' : 'rotate(0deg)',
                           }}
                         >
                           <polyline points="6 9 12 15 18 9" />
@@ -977,12 +1438,16 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                       </button>
                       
                       {/* Documents Content */}
-                      {expandedResources.has('documents') && (
+                      {getCurrentTaskExpandedResources().has('documents') && (
                         <div
                           className="mt-2 px-4 py-4 bg-white rounded-lg border"
                           style={{ borderColor: '#D1D5DB' }}
                         >
-                          {renderDocuments()}
+                          {filterDocumentsContent(renderDocuments()) || (
+                            <p className="text-sm" style={{ color: '#9CA3AF' }}>
+                              No results found for &quot;{resourceSearchQuery}&quot;
+                            </p>
+                          )}
                         </div>
                       )}
                     </>
