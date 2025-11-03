@@ -205,19 +205,63 @@ export async function POST(request: Request) {
 
     // 6. Send email verification via custom SMTP (Gmail/Resend)
     // Supabase email is disabled due to bounce rates
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_BASE_URL || 'http://localhost:3000'
+    const { getEmailBaseUrl } = await import('@/lib/utils/get-base-url')
+    const baseUrl = getEmailBaseUrl()
+    const redirectTo = `${baseUrl}/login` // Redirect to login page after verification
+
+    console.log('📧 Email verification setup:', {
+      baseUrl,
+      redirectTo,
+      NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+      VERCEL_URL: process.env.VERCEL_URL,
+      APP_BASE_URL: process.env.APP_BASE_URL,
+    })
 
     // Generate confirmation link
     const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
       type: 'signup',
       email: data.email,
       options: {
-        redirectTo: `${baseUrl}/auth/callback`
+        redirectTo: redirectTo
       }
     })
 
-    const confirmationUrl = linkData?.properties?.action_link ||
-      `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/verify?token=pending&type=signup&redirect_to=${encodeURIComponent(baseUrl + '/auth/callback')}`
+    console.log('🔗 Generated link data:', {
+      action_link: linkData?.properties?.action_link,
+      hasRedirect: linkData?.properties?.action_link?.includes('redirect_to'),
+      linkError: linkError?.message,
+    })
+
+    // Extract token from action_link and construct our own URL
+    let confirmationUrl = linkData?.properties?.action_link || ''
+    
+    // ALWAYS reconstruct the URL with our correct redirect_to
+    // Supabase's action_link might contain localhost from Site URL config
+    if (confirmationUrl && confirmationUrl.includes('token=')) {
+      try {
+        const url = new URL(confirmationUrl)
+        const token = url.searchParams.get('token')
+        if (token) {
+          // FORCE our redirect URL - ignore what Supabase provided
+          confirmationUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/verify?token=${encodeURIComponent(token)}&type=signup&redirect_to=${encodeURIComponent(redirectTo)}`
+          console.log('✅ Reconstructed URL with correct redirect:', confirmationUrl.substring(0, 150) + '...')
+        }
+      } catch (e) {
+        console.warn('⚠️ Could not parse action_link URL:', e)
+        // Fallback: try to extract token manually
+        const tokenMatch = confirmationUrl.match(/token=([^&]+)/)
+        if (tokenMatch && tokenMatch[1]) {
+          confirmationUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/verify?token=${encodeURIComponent(tokenMatch[1])}&type=signup&redirect_to=${encodeURIComponent(redirectTo)}`
+          console.log('✅ Reconstructed URL using regex:', confirmationUrl.substring(0, 150) + '...')
+        }
+      }
+    } else {
+      // Fallback: create URL manually
+      console.warn('⚠️ No valid action_link, using fallback')
+      confirmationUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/verify?token=pending&type=signup&redirect_to=${encodeURIComponent(redirectTo)}`
+    }
+
+    console.log('📤 Final confirmation URL:', confirmationUrl.substring(0, 200) + '...')
 
     const emailResult = await sendEmailVerification({
       to: data.email,

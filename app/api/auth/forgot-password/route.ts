@@ -47,7 +47,8 @@ export async function POST(request: Request) {
     }
 
     // Generate password reset link
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_BASE_URL || 'http://localhost:3000'
+    const { getEmailBaseUrl } = await import('@/lib/utils/get-base-url')
+    const baseUrl = getEmailBaseUrl()
     const redirectTo = `${baseUrl}/reset-password`
     
     const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({

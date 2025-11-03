@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from '@/lib/link'
 import RegistrationFooter from '@/components/forms/RegistrationFooter'
 import GemeindeRegistrationInfobox from './gemeinde-registration-infobox'
 import { getMunicipalityUrl } from '@/lib/municipality-urls'
 import AppHeader from '@/components/AppHeader'
+import { Vault } from 'lucide-react'
 
 interface EssentialsClientProps {
   firstName: string
@@ -38,9 +39,14 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   const [goal, setGoal] = useState('')
   const [taskStatus, setTaskStatus] = useState<Record<number, boolean>>({}) // Track done status per task
   const [reminderDays, setReminderDays] = useState<Record<number, number>>({}) // Track reminder days per task
+  const [completedDates, setCompletedDates] = useState<Record<number, string>>({}) // Track completion dates
   const [expandedResources, setExpandedResources] = useState<Set<string>>(new Set())
   const [municipalityInfo, setMunicipalityInfo] = useState<any>(null)
   const [loadingMunicipality, setLoadingMunicipality] = useState(false)
+  const [reminderSaveStatus, setReminderSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  
+  // Debounce timer ref for reminder changes
+  const reminderDebounceRef = useRef<NodeJS.Timeout | null>(null)
   
   // Get current task's done status
   const isDone = selectedTask ? taskStatus[selectedTask] || false : false
@@ -85,11 +91,15 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       // For now, initialize from localStorage if available
       const savedStatus = localStorage.getItem(`task_${taskId}_done`)
       const savedReminder = localStorage.getItem(`task_${taskId}_reminder`)
+      const savedCompletedDate = localStorage.getItem(`task_${taskId}_completed_date`)
       if (savedStatus === 'true') {
         setTaskStatus(prev => ({ ...prev, [taskId]: true }))
       }
       if (savedReminder) {
         setReminderDays(prev => ({ ...prev, [taskId]: Number(savedReminder) }))
+      }
+      if (savedCompletedDate) {
+        setCompletedDates(prev => ({ ...prev, [taskId]: savedCompletedDate }))
       }
     } catch (error) {
       console.error('Error loading task data:', error)
@@ -108,9 +118,18 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
 
   const handleTaskClick = (taskId: number) => {
     setSelectedTask(taskId)
+    // Reset reminder save status when switching tasks
+    setReminderSaveStatus('idle')
   }
 
   const handleTaskComplete = async (checked: boolean) => {
+    console.log('🚀 handleTaskComplete called:', {
+      checked,
+      selectedTask,
+      isDone,
+      willReturn: !selectedTask || isDone
+    })
+
     if (!selectedTask || isDone) return // Don't allow unchecking once done
 
     // Update local state immediately
@@ -120,14 +139,31 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     localStorage.setItem(`task_${selectedTask}_done`, checked.toString())
 
     if (checked) {
-      // Task marked as done - cancel reminder and update status
+      // Task marked as done - save completion date and cancel reminder
+      const completionDate = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+      setCompletedDates(prev => ({ ...prev, [selectedTask]: completionDate }))
+      localStorage.setItem(`task_${selectedTask}_completed_date`, completionDate)
+      
       try {
-        // TODO: API call to mark task as completed
-        // await fetch(`/api/tasks/${selectedTask}/complete`, { method: 'POST' })
-        console.log(`Task ${selectedTask} marked as completed`)
+        // API call to mark task as completed
+        const response = await fetch(`/api/tasks/${selectedTask}/complete`, { 
+          method: 'POST',
+        })
         
-        // Dispatch custom event to update progress on dashboard
+        if (!response.ok) {
+          throw new Error('Failed to save task completion')
+        }
+        
+        console.log(`Task ${selectedTask} marked as completed on ${completionDate}`)
+        
+        // Dispatch custom event to update progress on dashboard and essentials page
         window.dispatchEvent(new Event('taskCompleted'))
+        
+        // Trigger storage event to update other tabs/windows
+        window.dispatchEvent(new StorageEvent('storage', {
+          key: `task_${selectedTask}_done`,
+          newValue: 'true',
+        }))
         
         // Cancel reminder when task is done (as per user story)
         // The reminder input will be automatically disabled
@@ -136,15 +172,74 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
         // Revert on error
         setTaskStatus(prev => ({ ...prev, [selectedTask]: false }))
         localStorage.setItem(`task_${selectedTask}_done`, 'false')
+        setCompletedDates(prev => {
+          const newDates = { ...prev }
+          delete newDates[selectedTask]
+          return newDates
+        })
       }
     }
   }
   
   const handleReminderChange = (days: number) => {
     if (!selectedTask || isDone) return
+    
+    // Update local state immediately for UI responsiveness
     setReminderDays(prev => ({ ...prev, [selectedTask]: days }))
     localStorage.setItem(`task_${selectedTask}_reminder`, days.toString())
+    
+    // Show "saving" status
+    setReminderSaveStatus('saving')
+    
+    // Clear existing debounce timer
+    if (reminderDebounceRef.current) {
+      clearTimeout(reminderDebounceRef.current)
+    }
+    
+    // Debounce API call - save to database after 1 second of no changes
+    reminderDebounceRef.current = setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/tasks/${selectedTask}/reminder`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ days }),
+        })
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+          console.warn('⚠️ Reminder API returned non-ok status:', response.status, errorData)
+          setReminderSaveStatus('error')
+          // Reset to idle after 2 seconds
+          setTimeout(() => setReminderSaveStatus('idle'), 2000)
+          // Don't throw - localStorage already saved, API is optional
+          return
+        }
+        
+        const data = await response.json()
+        console.log(`✅ Reminder saved to database: ${days} days for task ${selectedTask}`, data)
+        setReminderSaveStatus('saved')
+        // Reset to idle after 2 seconds
+        setTimeout(() => setReminderSaveStatus('idle'), 2000)
+      } catch (error) {
+        console.warn('⚠️ Error saving reminder to database (using localStorage only):', error)
+        setReminderSaveStatus('error')
+        // Reset to idle after 2 seconds
+        setTimeout(() => setReminderSaveStatus('idle'), 2000)
+        // Don't throw - localStorage already saved for offline support
+      }
+    }, 1000)
   }
+  
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (reminderDebounceRef.current) {
+        clearTimeout(reminderDebounceRef.current)
+      }
+    }
+  }, [])
 
   const loadMunicipalityInfo = async (municipalityName: string) => {
     if (!municipalityName) return
@@ -156,11 +251,11 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
         const info = await response.json()
         setMunicipalityInfo(info)
       } else {
-        console.error('Failed to load municipality info')
+        // Municipality info not available - not an error, just not found
         setMunicipalityInfo(null)
       }
     } catch (error) {
-      console.error('Error loading municipality info:', error)
+      // Silently handle errors - municipality info is optional
       setMunicipalityInfo(null)
     } finally {
       setLoadingMunicipality(false)
@@ -289,28 +384,6 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     if (infobox.type === 'no_country') {
       return (
         <div className="space-y-4">
-          <div className="flex items-center gap-3 mb-4">
-            <div
-              className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ backgroundColor: '#FEF3C7' }}
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#F59E0B"
-                strokeWidth="2"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-bold" style={{ color: '#2D5016' }}>
-              Profile Incomplete
-            </h3>
-          </div>
           <p className="text-sm leading-relaxed" style={{ color: '#374151' }}>
             {infobox.message.split('\n').map((line: string, i: number) => (
               <span key={i}>
@@ -338,31 +411,6 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     if (infobox.type === 'visa_exempt') {
       return (
         <div className="space-y-4">
-          <div className="flex items-center gap-3 mb-4">
-            <div
-              className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ backgroundColor: '#DBEAFE' }}
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#3B82F6"
-                strokeWidth="2"
-              >
-                <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                <path d="M2 17l10 5 10-5M2 12l10 5 10-5" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-bold" style={{ color: '#2D5016' }}>
-              Visa-Exempt Country
-            </h3>
-          </div>
-          <p className="text-sm font-medium mb-4" style={{ color: '#374151' }}>
-            The following information is relevant to you since you are a citizen of{' '}
-            <strong style={{ color: '#2D5016' }}>{infobox.country_name}</strong>.
-          </p>
           {infobox.faqs?.map((faq: any, index: number) => (
             <div key={index} className="space-y-2">
               <h4 className="font-semibold text-base mt-4" style={{ color: '#2D5016' }}>
@@ -404,31 +452,6 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     if (infobox.type === 'visa_required') {
       return (
         <div className="space-y-4">
-          <div className="flex items-center gap-3 mb-4">
-            <div
-              className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ backgroundColor: '#FEE2E2' }}
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#EF4444"
-                strokeWidth="2"
-              >
-                <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                <path d="M2 17l10 5 10-5M2 12l10 5 10-5" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-bold" style={{ color: '#2D5016' }}>
-              Visa Required
-            </h3>
-          </div>
-          <p className="text-sm font-medium mb-4" style={{ color: '#374151' }}>
-            The following information is relevant to you since you are a citizen of{' '}
-            <strong style={{ color: '#2D5016' }}>{infobox.country_name}</strong>.
-          </p>
           {infobox.faqs?.map((faq: any, index: number) => (
             <div key={index} className="space-y-2">
               <h4 className="font-semibold text-base mt-4" style={{ color: '#2D5016' }}>
@@ -470,27 +493,6 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     if (infobox.type === 'eu_efta') {
       return (
         <div className="space-y-4">
-          <div className="flex items-center gap-3 mb-4">
-            <div
-              className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ backgroundColor: '#D1FAE5' }}
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#10B981"
-                strokeWidth="2"
-              >
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                <polyline points="22 4 12 14.01 9 11.01" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-bold" style={{ color: '#2D5016' }}>
-              EU/EFTA Citizen
-            </h3>
-          </div>
           <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: '#374151' }}>
             {infobox.message || infobox.country_name ? (
               <>
@@ -679,113 +681,136 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       <AppHeader firstName={firstName} avatarUrl={avatarUrl} showHome={true} />
 
       {/* Main Content */}
-      <div className="flex-1 flex gap-6 px-6 py-8">
-        {/* Left Column - Essential Tasks */}
-        <div className="w-80">
+      <div className="flex-1 flex gap-8 px-6 py-8">
+        {/* Left Column - Vault + Essential Tasks */}
+        <div className="w-96">
           <h1 className="text-3xl md:text-4xl font-bold mb-8" style={{ color: '#2D5016' }}>
             The ESSENTIALS
           </h1>
-
-          <div className="space-y-4">
-            {tasks.map((task) => (
-              <div key={task.id} className="flex items-start gap-4">
-                {/* Task Number + Icons (only for task 1) */}
-                <div className="flex flex-col items-center gap-2">
-                  {task.id === 1 && (
-                    <>
-                      {/* Trash Icon - placeholder for future delete functionality */}
-                      <button className="w-6 h-6 flex items-center justify-center hover:opacity-70 transition-opacity opacity-0 cursor-default">
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          className="text-gray-600"
-                        >
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                        </svg>
-                      </button>
-                      {/* Bell Icon */}
-                      <button className="w-6 h-6 flex items-center justify-center hover:opacity-70 transition-opacity">
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          className="text-gray-600"
-                        >
-                          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                        </svg>
-                      </button>
-                    </>
-                  )}
-                  {/* Task Number */}
-                  <div
-                    className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-xl"
-                    style={{ backgroundColor: '#2D5016' }}
-                  >
-                    {task.number}
-                  </div>
-                </div>
-
-                {/* Task Button - limited width and left-aligned, clickable */}
-                <button
-                  onClick={() => handleTaskClick(task.id)}
-                  className={`max-w-xs flex-1 rounded-lg p-4 text-left transition-all hover:opacity-90 cursor-pointer ${
-                    selectedTask === task.id ? 'ring-2 ring-offset-2 ring-2D5016 shadow-lg' : ''
-                  }`}
-                  style={{
-                    backgroundColor: '#C85C1A',
-                    border: selectedTask === task.id ? '2px solid #2D5016' : 'none',
-                    transform: selectedTask === task.id ? 'scale(1.02)' : 'scale(1)',
-                  }}
+          
+          <div className="flex gap-6 items-start">
+            {/* Vault Icon + Bell - Aligned with first task */}
+            <div className="flex-shrink-0 flex flex-col gap-3">
+              <Link
+                href="/vault"
+                className="w-20 h-20 rounded-lg flex items-center justify-center cursor-pointer hover:opacity-90 transition-all hover:scale-105 shadow-md"
+                style={{ backgroundColor: '#294F3F', borderRadius: '10px' }}
+              >
+                <Vault className="text-white" size={48} strokeWidth={2.5} />
+              </Link>
+              {/* Bell Icon - Same style as Vault */}
+              <button className="w-20 h-20 rounded-lg flex items-center justify-center cursor-pointer hover:opacity-90 transition-all hover:scale-105 shadow-md"
+                style={{ backgroundColor: '#294F3F', borderRadius: '10px' }}
+              >
+                <svg
+                  width="48"
+                  height="48"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="white"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 >
-                  <span className="text-white font-medium">{task.title}</span>
-                </button>
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Task List */}
+            <div className="flex-1">
+              <div className="space-y-4">
+                {tasks.map((task) => {
+                  return (
+                    <div
+                      key={task.id}
+                      onClick={() => handleTaskClick(task.id)}
+                      className={`rounded-lg p-4 cursor-pointer transition-all hover:opacity-90 ${
+                        selectedTask === task.id ? 'ring-2 ring-offset-2' : ''
+                      }`}
+                      style={{
+                        backgroundColor: '#E9A843',
+                        border: selectedTask === task.id ? '2px solid #2D5016' : '1px solid rgba(0, 0, 0, 0.1)',
+                      }}
+                    >
+                      {/* Task Number and Title - Centered */}
+                      <div className="flex items-center justify-center gap-3">
+                        {/* Task Number */}
+                        <div
+                          className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-xl"
+                          style={{ backgroundColor: '#2D5016' }}
+                        >
+                          {task.number}
+                        </div>
+
+                        {/* Task Title - Centered */}
+                        <div className="flex-1 text-center">
+                          <h3 className="font-medium text-base" style={{ color: '#374151' }}>
+                            {task.title}
+                          </h3>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-            ))}
+            </div>
           </div>
         </div>
 
-        {/* Middle Column - Infobox */}
-        <div className="flex-1 max-w-2xl">
+        {/* Middle Column - Infobox - Aligned with Vault and first task */}
+        <div className="flex-1">
+          {/* Spacer to align with "The ESSENTIALS" title */}
+          <div className="mb-8">
+            <div className="text-3xl md:text-4xl font-bold" style={{ color: 'transparent' }}>
+              The ESSENTIALS
+            </div>
+          </div>
+          
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#2D5016' }}></div>
             </div>
           ) : taskData ? (
-            <div
-              className="rounded-lg p-6 h-fit"
-              style={{
-                backgroundColor: '#FFFFFF',
-                border: '2px solid #3B82F6',
-                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              {/* Goal Section - Always on top */}
-              <div className="mb-6">
+            <div className="flex-1">
+              {/* Main White Panel with Dark Green Border */}
+              <div
+                className="rounded-lg p-6"
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  border: '2px solid #2D5016',
+                  boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                }}
+              >
+                {/* 1. Zeile: Titel "Goal" */}
                 <h2 className="text-xl font-bold mb-4" style={{ color: '#2D5016' }}>
                   Goal
                 </h2>
-                <p className="text-base leading-relaxed" style={{ color: '#374151' }}>
-                  {goal || taskData.goal || 'Loading...'}
-                </p>
-              </div>
 
-              {/* I have done this + Reminder - Same line */}
-              <div className="flex items-center justify-between mb-6 pb-6 border-b" style={{ borderColor: '#E5E7EB' }}>
-                {/* I have done this - Icon Button */}
-                <div className="flex items-center gap-2">
+                {/* 2. Zeile: Box mit Goal */}
+                <div
+                  className="rounded-lg p-4 min-h-[120px] mb-6"
+                  style={{
+                    backgroundColor: '#F3F4F6',
+                    border: '1px solid #E5E7EB',
+                  }}
+                >
+                  <p className="text-base leading-relaxed" style={{ color: '#374151' }}>
+                    {goal || taskData.goal || 'Loading...'}
+                  </p>
+                </div>
+
+                {/* 3. Zeile: Checkbox "I have done this" + "Remind me in X days" */}
+                <div className="flex items-center gap-6 mb-6 pb-6 border-b" style={{ borderColor: '#E5E7EB' }}>
+                  {/* I have done this - Checkbox */}
                   <button
-                    onClick={() => handleTaskComplete(!isDone)}
+                    onClick={() => {
+                      console.log('🖱️ Complete button clicked:', { selectedTask, isDone, willCall: !isDone })
+                      handleTaskComplete(!isDone)
+                    }}
                     disabled={isDone}
-                    className={`flex items-center gap-2 text-sm font-medium transition-opacity ${
+                    className={`flex items-center gap-2 text-base font-medium transition-opacity ${
                       isDone ? 'cursor-default opacity-100' : 'cursor-pointer hover:opacity-80'
                     }`}
                     style={{ color: isDone ? '#22C55E' : '#374151' }}
@@ -793,12 +818,12 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                     {isDone ? (
                       <>
                         <div
-                          className="w-5 h-5 rounded flex items-center justify-center"
+                          className="w-6 h-6 rounded flex items-center justify-center"
                           style={{ backgroundColor: '#22C55E' }}
                         >
                           <svg
-                            width="14"
-                            height="14"
+                            width="16"
+                            height="16"
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="white"
@@ -809,139 +834,170 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                             <polyline points="20 6 9 17 4 12" />
                           </svg>
                         </div>
-                        <span>I have done this</span>
+                        <span>I have done this.</span>
                       </>
                     ) : (
                       <>
                         <div
-                          className="w-5 h-5 rounded border-2 flex items-center justify-center"
+                          className="w-6 h-6 rounded border-2 flex items-center justify-center"
                           style={{ borderColor: '#D1D5DB' }}
                         />
-                        <span>I have done this</span>
+                        <span>I have done this.</span>
                       </>
                     )}
                   </button>
+
+                  {/* Remind me in X days */}
+                  <div className="flex items-center gap-2">
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke={isDone ? '#9CA3AF' : '#374151'}
+                      strokeWidth="2"
+                    >
+                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                    </svg>
+                    <span className="text-base" style={{ color: isDone ? '#9CA3AF' : '#374151' }}>
+                      Remind me in{' '}
+                      <input
+                        type="number"
+                        value={currentReminderDays}
+                        onChange={(e) => handleReminderChange(Number(e.target.value))}
+                        min="1"
+                        max="30"
+                        disabled={isDone}
+                        className="inline-block w-12 px-2 py-1 rounded text-center font-bold border bg-transparent"
+                        style={{
+                          borderColor: isDone ? '#D1D5DB' : '#374151',
+                          color: isDone ? '#9CA3AF' : '#374151',
+                          textDecoration: 'underline',
+                        }}
+                      />{' '}
+                      days.
+                      {reminderSaveStatus === 'saving' && (
+                        <span className="ml-2 text-sm" style={{ color: '#6B7280' }}>
+                          (saving...)
+                        </span>
+                      )}
+                      {reminderSaveStatus === 'saved' && (
+                        <span className="ml-2 text-sm flex items-center gap-1" style={{ color: '#22C55E' }}>
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                          saved
+                        </span>
+                      )}
+                      {reminderSaveStatus === 'error' && (
+                        <span className="ml-2 text-sm" style={{ color: '#EF4444' }}>
+                          (saved locally)
+                        </span>
+                      )}
+                    </span>
+                  </div>
                 </div>
 
-                {/* Remind me in X days */}
-                <div className="flex items-center gap-2">
+                {/* 4. Zeile: Titel "Resources" */}
+                <h2 className="text-xl font-bold mb-4" style={{ color: '#2D5016' }}>
+                  Resources
+                </h2>
+
+                {/* 5. Zeile: Box "FAQ / Good to Know" (collapsible) */}
+                <div>
+                  {/* FAQs / Good to Know - Collapsible Button */}
                   <button
-                    className="w-5 h-5 flex items-center justify-center hover:opacity-70 transition-opacity"
-                    onClick={() => {}}
-                    disabled={isDone}
+                    onClick={() => toggleResource('faq')}
+                    className="w-full px-4 py-3 bg-gray-200 rounded-lg text-left flex items-center justify-between hover:opacity-90 transition-opacity mb-2"
                   >
+                    <span className="text-sm font-medium" style={{ color: '#374151' }}>
+                      FAQs / Good to Know
+                    </span>
                     <svg
                       width="16"
                       height="16"
                       viewBox="0 0 24 24"
                       fill="none"
-                      stroke={isDone ? '#9CA3AF' : 'currentColor'}
+                      stroke="#374151"
                       strokeWidth="2"
-                      className="text-gray-600"
+                      className="transition-transform"
+                      style={{
+                        transform: expandedResources.has('faq') ? 'rotate(180deg)' : 'rotate(0deg)',
+                      }}
                     >
-                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                      <polyline points="6 9 12 15 18 9" />
                     </svg>
                   </button>
-                  <span className="text-sm" style={{ color: isDone ? '#9CA3AF' : '#374151' }}>
-                    Remind me in{' '}
-                    <input
-                      type="number"
-                      value={currentReminderDays}
-                      onChange={(e) => handleReminderChange(Number(e.target.value))}
-                      min="1"
-                      max="30"
-                      disabled={isDone}
-                      className="inline-block w-12 px-2 py-1 rounded text-center font-bold border disabled:bg-gray-100 disabled:text-gray-400"
-                      style={{
-                        borderColor: isDone ? '#D1D5DB' : '#C85C1A',
-                        color: isDone ? '#9CA3AF' : '#C85C1A',
-                      }}
-                    />{' '}
-                    days
-                  </span>
+                  
+                  {/* FAQ Content */}
+                  {expandedResources.has('faq') && taskData.infobox && (
+                    <div
+                      className="mt-2 px-4 py-4 bg-white rounded-lg border"
+                      style={{ borderColor: '#D1D5DB' }}
+                    >
+                      {renderInfobox()}
+                    </div>
+                  )}
+                  
+                  {expandedResources.has('faq') && !taskData.infobox && (
+                    <div
+                      className="mt-2 px-4 py-4 bg-white rounded-lg border"
+                      style={{ borderColor: '#D1D5DB' }}
+                    >
+                      <p className="text-sm" style={{ color: '#9CA3AF' }}>
+                        No additional information available for this task.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Documents you need - Collapsible Button */}
+                  {selectedTask && taskData && (selectedTask === 1 || selectedTask === 2 || selectedTask === 4) && (
+                    <>
+                      <button
+                        onClick={() => toggleResource('documents')}
+                        className="w-full px-4 py-3 bg-gray-200 rounded-lg text-left flex items-center justify-between hover:opacity-90 transition-opacity mb-2"
+                      >
+                        <span className="text-sm font-medium" style={{ color: '#374151' }}>
+                          Documents you need
+                        </span>
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#374151"
+                          strokeWidth="2"
+                          className="transition-transform"
+                          style={{
+                            transform: expandedResources.has('documents') ? 'rotate(180deg)' : 'rotate(0deg)',
+                          }}
+                        >
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </button>
+                      
+                      {/* Documents Content */}
+                      {expandedResources.has('documents') && (
+                        <div
+                          className="mt-2 px-4 py-4 bg-white rounded-lg border"
+                          style={{ borderColor: '#D1D5DB' }}
+                        >
+                          {renderDocuments()}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
-              </div>
-
-              {/* Resources Section */}
-              <div className="mt-6">
-                <h2 className="text-xl font-bold mb-4" style={{ color: '#2D5016' }}>
-                  Resources
-                </h2>
-                
-                {/* FAQs / Good to Know - Collapsible */}
-                {taskData.infobox && (
-                  <div className="mb-2">
-                    <button
-                      onClick={() => toggleResource('faq')}
-                      className="w-full px-4 py-3 bg-gray-200 rounded-md text-left flex items-center justify-between hover:opacity-90 transition-opacity"
-                      style={{ borderColor: '#D1D5DB' }}
-                    >
-                      <span className="text-sm font-medium" style={{ color: '#374151' }}>
-                        FAQs / Good to Know
-                      </span>
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        className="text-gray-600 transition-transform"
-                        style={{
-                          transform: expandedResources.has('faq') ? 'rotate(180deg)' : 'rotate(0deg)',
-                        }}
-                      >
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
-                    </button>
-                    {expandedResources.has('faq') && (
-                      <div
-                        className="mt-2 px-4 py-4 bg-white rounded-md border"
-                        style={{ borderColor: '#D1D5DB' }}
-                      >
-                        {renderInfobox()}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Documents you need - Collapsible */}
-                {selectedTask && taskData && (selectedTask === 1 || selectedTask === 2 || selectedTask === 4) && (
-                  <div className="mb-2">
-                    <button
-                      onClick={() => toggleResource('documents')}
-                      className="w-full px-4 py-3 bg-gray-200 rounded-md text-left flex items-center justify-between hover:opacity-90 transition-opacity"
-                      style={{ borderColor: '#D1D5DB' }}
-                    >
-                      <span className="text-sm font-medium" style={{ color: '#374151' }}>
-                        Documents you need
-                      </span>
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        className="text-gray-600 transition-transform"
-                        style={{
-                          transform: expandedResources.has('documents') ? 'rotate(180deg)' : 'rotate(0deg)',
-                        }}
-                      >
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
-                    </button>
-                    {expandedResources.has('documents') && (
-                      <div
-                        className="mt-2 px-4 py-4 bg-white rounded-md border"
-                        style={{ borderColor: '#D1D5DB' }}
-                      >
-                        {renderDocuments()}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
           ) : (

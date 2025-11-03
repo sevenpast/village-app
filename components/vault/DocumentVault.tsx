@@ -23,14 +23,67 @@ interface DocumentVaultProps {
 
 export default function DocumentVault({ userId }: DocumentVaultProps) {
   const [documents, setDocuments] = useState<Document[]>([])
+  const [filteredDocuments, setFilteredDocuments] = useState<Document[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filterType, setFilterType] = useState<string>('all')
+  const [editingDocId, setEditingDocId] = useState<string | null>(null)
+  const [editingTags, setEditingTags] = useState<string[]>([])
+  const [editingType, setEditingType] = useState<string>('')
+  const [selectedDocuments, setSelectedDocuments] = useState<Set<string>>(new Set())
+  const [bulkDownloading, setBulkDownloading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Available document types (as specified by user)
+  const documentTypes = [
+    { value: 'passport', label: 'Passport/ID' },
+    { value: 'birth_certificate', label: 'Birth Certificate' },
+    { value: 'marriage_certificate', label: 'Marriage Certificate' },
+    { value: 'employment_contract', label: 'Employment Contract' },
+    { value: 'rental_contract', label: 'Rental Contract' },
+    { value: 'vaccination_record', label: 'Vaccination Record' },
+    { value: 'residence_permit', label: 'Residence Permit' },
+    { value: 'bank_documents', label: 'Bank Documents' },
+    { value: 'insurance_documents', label: 'Insurance Documents' },
+    { value: 'school_documents', label: 'School Documents' },
+    { value: 'other', label: 'Other' },
+  ]
+
+  // Available tags - used for additional metadata/searchability
+  // Tags can help with categorization and searching beyond document_type
+  const availableTags = [
+    'identity', 'travel', 'family', 'work', 'contract', 'housing',
+    'health', 'legal', 'residence', 'financial', 'education',
+    'bank', 'insurance', 'school', 'personal', 'official', 'other'
+  ]
 
   useEffect(() => {
     loadDocuments()
   }, [])
+
+  // Filter documents based on search and type
+  useEffect(() => {
+    let filtered = documents
+
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      filtered = filtered.filter(doc => 
+        doc.file_name.toLowerCase().includes(query) ||
+        doc.document_type?.toLowerCase().includes(query) ||
+        doc.tags?.some(tag => tag.toLowerCase().includes(query))
+      )
+    }
+
+    // Filter by document type
+    if (filterType !== 'all') {
+      filtered = filtered.filter(doc => doc.document_type === filterType)
+    }
+
+    setFilteredDocuments(filtered)
+  }, [documents, searchQuery, filterType])
 
   const loadDocuments = async () => {
     try {
@@ -39,7 +92,9 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
       const data = await response.json()
 
       if (data.success) {
-        setDocuments(data.documents || [])
+        const docs = data.documents || []
+        setDocuments(docs)
+        setFilteredDocuments(docs)
       } else {
         console.error('Failed to load documents:', data.error)
       }
@@ -92,7 +147,9 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
         await loadDocuments()
         setUploadProgress(0)
       } else {
-        alert(`Upload failed: ${data.error}`)
+        const errorMsg = data.details || data.error || 'Unknown error'
+        console.error('Upload failed:', errorMsg)
+        alert(`Upload failed: ${errorMsg}`)
         setUploadProgress(0)
       }
     } catch (error) {
@@ -110,21 +167,109 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
     }
 
     try {
+      console.log('🗑️ Deleting document:', documentId)
       const response = await fetch(`/api/vault/${documentId}`, {
         method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
       })
 
-      const data = await response.json()
+      console.log('📡 Response status:', response.status, response.statusText)
 
-      if (data.success) {
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        console.error('❌ Response is not JSON:', await response.text())
+        alert('Delete failed: Invalid response from server')
+        return
+      }
+
+      const data = await response.json()
+      console.log('📦 Response data:', data)
+
+      // Check for successful response (200-299 status codes)
+      if (response.ok && data.success) {
         // Reload documents list
         await loadDocuments()
+        console.log('✅ Document deleted successfully')
       } else {
-        alert(`Delete failed: ${data.error}`)
+        // Handle error responses (4xx, 5xx status codes or success: false)
+        console.error('❌ Delete failed:', data)
+        const errorMsg = data.details
+          ? `${data.error}: ${data.details}`
+          : data.error || 'Failed to delete document'
+        alert(`Delete failed: ${errorMsg}`)
       }
     } catch (error) {
-      console.error('Delete error:', error)
+      console.error('❌ Delete error:', error)
       alert(`Delete error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  // Bulk selection functions
+  const handleSelectDocument = (documentId: string, checked: boolean) => {
+    const newSelection = new Set(selectedDocuments)
+    if (checked) {
+      newSelection.add(documentId)
+    } else {
+      newSelection.delete(documentId)
+    }
+    setSelectedDocuments(newSelection)
+  }
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const allIds = new Set(filteredDocuments.map(doc => doc.id))
+      setSelectedDocuments(allIds)
+    } else {
+      setSelectedDocuments(new Set())
+    }
+  }
+
+  const handleBulkDownload = async () => {
+    if (selectedDocuments.size === 0) {
+      alert('Please select documents to download')
+      return
+    }
+
+    setBulkDownloading(true)
+    try {
+      console.log('📦 Starting bulk download for documents:', Array.from(selectedDocuments))
+
+      const response = await fetch('/api/vault/bulk-download', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          documentIds: Array.from(selectedDocuments)
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Download failed')
+      }
+
+      // Create download link for ZIP file
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `documents-${new Date().toISOString().split('T')[0]}.zip`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+
+      console.log('✅ Bulk download completed successfully')
+      setSelectedDocuments(new Set()) // Clear selection after download
+    } catch (error) {
+      console.error('❌ Bulk download error:', error)
+      alert(`Download failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setBulkDownloading(false)
     }
   }
 
@@ -155,6 +300,49 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
     }
   }
 
+  const handleEditTags = (doc: Document) => {
+    setEditingDocId(doc.id)
+    setEditingTags(doc.tags || [])
+    setEditingType(doc.document_type || 'other')
+  }
+
+  const handleSaveTags = async (docId: string) => {
+    try {
+      const response = await fetch(`/api/vault/${docId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          document_type: editingType,
+          tags: editingTags,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        await loadDocuments()
+        setEditingDocId(null)
+        setEditingTags([])
+        setEditingType('')
+      } else {
+        alert(`Failed to update: ${data.error}`)
+      }
+    } catch (error) {
+      console.error('Error updating tags:', error)
+      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  const toggleTag = (tag: string) => {
+    if (editingTags.includes(tag)) {
+      setEditingTags(editingTags.filter(t => t !== tag))
+    } else {
+      setEditingTags([...editingTags, tag])
+    }
+  }
+
   return (
     <div className="w-full max-w-6xl mx-auto p-6">
       {/* Header */}
@@ -165,6 +353,37 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
         <p className="text-gray-600">
           Upload and manage your important documents securely
         </p>
+      </div>
+
+      {/* Search and Filter */}
+      <div className="mb-6 flex flex-col md:flex-row gap-4">
+        {/* Search */}
+        <div className="flex-1">
+          <input
+            type="text"
+            placeholder="Search documents by name, type, or tags..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full px-4 py-2 rounded-lg border"
+            style={{ borderColor: '#2D5016' }}
+          />
+        </div>
+        {/* Filter by Type */}
+        <div className="md:w-64">
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            className="w-full px-4 py-2 rounded-lg border"
+            style={{ borderColor: '#2D5016' }}
+          >
+            <option value="all">All Types</option>
+            {documentTypes.map(type => (
+              <option key={type.value} value={type.value}>
+                {type.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Upload Section */}
@@ -224,6 +443,51 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
         </div>
       </div>
 
+      {/* Bulk Selection Controls */}
+      {!loading && documents.length > 0 && (
+        <div className="bg-white rounded-lg border p-4 mb-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={selectedDocuments.size === filteredDocuments.length && filteredDocuments.length > 0}
+                  onChange={(e) => handleSelectAll(e.target.checked)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm font-medium">
+                  {selectedDocuments.size === 0
+                    ? 'Select All'
+                    : `${selectedDocuments.size} of ${filteredDocuments.length} selected`}
+                </span>
+              </label>
+            </div>
+
+            {selectedDocuments.size > 0 && (
+              <button
+                onClick={handleBulkDownload}
+                disabled={bulkDownloading}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                {bulkDownloading ? 'Creating ZIP...' : `Download ${selectedDocuments.size} files`}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Documents List */}
       {loading ? (
         <div className="text-center py-12">
@@ -248,14 +512,33 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
             Upload your first document to get started
           </p>
         </div>
+      ) : filteredDocuments.length === 0 ? (
+        <div className="text-center py-12">
+          <p className="text-gray-600 mb-4">No documents found</p>
+          <p className="text-sm text-gray-500">
+            {searchQuery || filterType !== 'all' 
+              ? 'Try adjusting your search or filter' 
+              : 'Upload your first document to get started'}
+          </p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {documents.map((doc) => (
+          {filteredDocuments.map((doc) => (
             <div
               key={doc.id}
-              className="border rounded-lg p-4 hover:shadow-md transition-shadow"
+              className="border rounded-lg p-4 hover:shadow-md transition-shadow relative"
               style={{ backgroundColor: '#FFFFFF', borderColor: '#E5E7EB' }}
             >
+              {/* Selection Checkbox */}
+              <div className="absolute top-2 right-2 z-10">
+                <input
+                  type="checkbox"
+                  checked={selectedDocuments.has(doc.id)}
+                  onChange={(e) => handleSelectDocument(doc.id, e.target.checked)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+              </div>
+
               {/* Thumbnail */}
               <div className="mb-3 aspect-video bg-gray-100 rounded flex items-center justify-center overflow-hidden">
                 {doc.thumbnail_url ? (
@@ -294,14 +577,98 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
                   </span>
                 </div>
                 {doc.document_type && (
-                  <p className="text-xs text-gray-600">
+                  <p className="text-xs text-gray-600 mb-1">
                     Type: {getDocumentTypeLabel(doc.document_type)}
+                  </p>
+                )}
+                {doc.tags && doc.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {doc.tags.map((tag, idx) => (
+                      <span
+                        key={idx}
+                        className="text-xs px-2 py-0.5 rounded"
+                        style={{ backgroundColor: '#E5E7EB', color: '#374151' }}
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {doc.processing_status === 'failed' && (
+                  <p className="text-xs text-red-600 mt-1">
+                    Processing failed. You can still use this document.
                   </p>
                 )}
               </div>
 
+              {/* Edit Tags Modal/Form */}
+              {editingDocId === doc.id ? (
+                <div className="mb-3 p-3 rounded border" style={{ borderColor: '#2D5016', backgroundColor: '#FAF6F0' }}>
+                  <div className="mb-2">
+                    <label className="text-xs font-medium text-gray-700 mb-1 block">Document Type:</label>
+                    <select
+                      value={editingType}
+                      onChange={(e) => setEditingType(e.target.value)}
+                      className="w-full px-2 py-1 text-sm rounded border"
+                      style={{ borderColor: '#2D5016' }}
+                    >
+                      {documentTypes.map(type => (
+                        <option key={type.value} value={type.value}>
+                          {type.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="mb-2">
+                    <label className="text-xs font-medium text-gray-700 mb-1 block">Tags:</label>
+                    <div className="flex flex-wrap gap-1">
+                      {availableTags.map(tag => (
+                        <button
+                          key={tag}
+                          onClick={() => toggleTag(tag)}
+                          className={`text-xs px-2 py-1 rounded transition-colors ${
+                            editingTags.includes(tag)
+                              ? 'bg-green-600 text-white'
+                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                          }`}
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={() => handleSaveTags(doc.id)}
+                      className="flex-1 px-3 py-1 text-sm rounded text-white"
+                      style={{ backgroundColor: '#2D5016' }}
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingDocId(null)
+                        setEditingTags([])
+                        setEditingType('')
+                      }}
+                      className="flex-1 px-3 py-1 text-sm rounded border"
+                      style={{ borderColor: '#2D5016', color: '#2D5016' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
               {/* Actions */}
               <div className="flex gap-2">
+                <button
+                  onClick={() => handleEditTags(doc)}
+                  className="px-3 py-2 text-sm rounded border transition-colors hover:bg-gray-50"
+                  style={{ borderColor: '#2D5016', color: '#2D5016' }}
+                >
+                  Edit
+                </button>
                 {doc.download_url && (
                   <a
                     href={doc.download_url}

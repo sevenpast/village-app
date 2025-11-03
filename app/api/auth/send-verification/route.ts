@@ -72,7 +72,7 @@ export async function POST(request: Request) {
           type: 'signup',
           email: email,
           options: {
-            redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/auth/verified`,
+            redirectTo: `${(await import('@/lib/utils/get-base-url')).getEmailBaseUrl()}/login`,
           }
         })
         
@@ -131,7 +131,7 @@ export async function POST(request: Request) {
             type: 'signup',
             email: email,
             options: {
-              redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/auth/verified`,
+              redirectTo: `${(await import('@/lib/utils/get-base-url')).getEmailBaseUrl()}/login`,
             }
           })
 
@@ -168,9 +168,8 @@ export async function POST(request: Request) {
       if (linkError || !linkData?.properties?.action_link) {
         console.warn('⚠️ Could not generate Supabase link, using fallback URL')
         // Fallback: create a verification URL
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL 
-          ? `https://${process.env.VERCEL_URL}` 
-          : 'http://localhost:3000'
+        const { getEmailBaseUrl } = await import('@/lib/utils/get-base-url')
+        const baseUrl = getEmailBaseUrl()
         confirmationUrl = `${baseUrl}/auth/verified?email=${encodeURIComponent(email)}&message=Email+verification+test`
       } else {
         confirmationUrl = linkData.properties.action_link
