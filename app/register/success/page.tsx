@@ -48,7 +48,10 @@ function SuccessContent() {
           {/* Continue Button */}
           <Link
             href="/login"
-            className="inline-block px-8 py-4 text-white font-bold rounded-lg transition-opacity hover:opacity-90 bg-village-green hover:bg-village-green-light"
+            className="inline-block px-8 py-4 text-white font-bold rounded-lg transition-opacity hover:opacity-90"
+            style={{
+              backgroundColor: '#2D5016',
+            }}
           >
             Continue to Login
           </Link>
