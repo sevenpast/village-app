@@ -11,7 +11,7 @@ interface AvatarUploadProps {
 }
 
 /**
- * Avatar Upload Component
+ * Picture Upload Component
  * Displays a circular placeholder with person icon
  * Clicking anywhere on the circle opens file picker
  * Shows preview of uploaded image

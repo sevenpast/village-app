@@ -321,50 +321,50 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
         return
       }
 
-      // Handle avatar upload separately if it's a file
+      // Handle picture upload separately if it's a file
       let avatarUrl = data.avatar_url || initialData?.avatar_url
 
       if (data.avatar && data.avatar instanceof File) {
         try {
-          console.log('📤 Uploading avatar file:', {
+          console.log('📤 Uploading picture file:', {
             name: data.avatar.name,
             size: data.avatar.size,
             type: data.avatar.type,
           })
 
-          // Upload avatar to Supabase Storage
-          const fileExt = data.avatar.name.split('.').pop()
-          const fileName = `${user.id}-${Date.now()}.${fileExt}`
-          const filePath = `avatars/${fileName}`
+          // Upload picture to Supabase Storage (same path format as registration)
+          const fileExt = data.avatar.name.split('.').pop() || 'jpg'
+          const fileName = `${user.id}/avatar.${fileExt}`
 
           const { data: uploadData, error: uploadError } = await supabase.storage
             .from('avatars')
-            .upload(filePath, data.avatar, {
-              upsert: true,
-              contentType: data.avatar.type || 'image/jpeg',
+            .upload(fileName, data.avatar, {
+              contentType: data.avatar.type || `image/${fileExt}`,
+              upsert: true, // Replace existing avatar
             })
 
           if (uploadError) {
-            console.error('⚠️ Avatar upload error:', {
+            console.error('⚠️ Picture upload error:', {
               error: uploadError,
               message: uploadError.message,
               statusCode: uploadError.statusCode,
             })
-            // Don't fail the entire save if avatar upload fails
-            // Just use existing avatar_url or skip
-            alert(`Avatar upload failed: ${uploadError.message}. Profile will be saved without new avatar.`)
+            // Don't fail the entire save if picture upload fails
+            alert(`Picture upload failed: ${uploadError.message}. Profile will be saved without new picture.`)
           } else {
-            console.log('✅ Avatar uploaded successfully:', uploadData)
+            console.log('✅ Picture uploaded successfully:', uploadData.path)
+            
+            // Get public URL
             const { data: { publicUrl } } = supabase.storage
               .from('avatars')
-              .getPublicUrl(filePath)
+              .getPublicUrl(fileName)
+            
             avatarUrl = publicUrl
-            console.log('✅ Avatar URL:', avatarUrl)
+            console.log('✅ Picture URL:', avatarUrl)
           }
         } catch (uploadError: any) {
-          console.error('⚠️ Unexpected error during avatar upload:', uploadError)
-          // Don't fail the entire save if avatar upload fails
-          alert(`Avatar upload failed: ${uploadError.message || 'Unknown error'}. Profile will be saved without new avatar.`)
+          console.error('⚠️ Unexpected error during picture upload:', uploadError)
+          alert(`Picture upload failed: ${uploadError.message || 'Unknown error'}. Profile will be saved without new picture.`)
         }
       }
 
@@ -428,6 +428,7 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
       }
 
       console.log('✅ Profile saved successfully:', updatedProfile)
+      console.log('🖼️ Saved picture URL:', avatarUrl)
 
       // Update user metadata (first_name, last_name) if changed
       if (data.first_name || data.last_name) {
@@ -523,21 +524,23 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
 
       setSaveSuccess(true)
 
-      // Refresh data via onSave callback to ensure parent component has latest data
+      // Refresh data via onSave callback to ensure parent component has latest data (especially picture URL)
       if (onSave) {
         try {
-          console.log('🔄 Refreshing parent component data...')
+          console.log('🔄 Refreshing parent component data to show new picture...')
           await onSave()
-          console.log('✅ Parent component data refreshed')
+          console.log('✅ Parent component data refreshed with new picture URL')
         } catch (refreshError) {
           console.error('⚠️ Error refreshing parent data:', refreshError)
           // Don't fail the save if refresh fails
         }
       }
 
-      // Wait a moment for everything to complete, then navigate back to dashboard
-      console.log('⏳ Waiting for save to complete, then navigating...')
-      await new Promise(resolve => setTimeout(resolve, 1500)) // 1.5 seconds to ensure everything is saved
+      // Reload the page to ensure the picture is displayed everywhere (header, etc.)
+      console.log('🔄 Reloading page to display new picture in header...')
+      setTimeout(() => {
+        window.location.reload()
+      }, 500) // Small delay to ensure save is complete
       
       console.log('🚀 Navigating back to dashboard...')
       router.push('/')
