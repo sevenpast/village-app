@@ -138,6 +138,28 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // Only load once on mount
 
+  // Listen for vault document updates (upload/delete from other pages)
+  useEffect(() => {
+    const handleVaultDocumentUploaded = () => {
+      console.log('📥 Vault document uploaded, reloading documents...')
+      loadVaultDocuments()
+    }
+
+    const handleVaultDocumentDeleted = () => {
+      console.log('🗑️ Vault document deleted, reloading documents...')
+      loadVaultDocuments()
+    }
+
+    window.addEventListener('vaultDocumentUploaded', handleVaultDocumentUploaded)
+    window.addEventListener('vaultDocumentDeleted', handleVaultDocumentDeleted)
+
+    return () => {
+      window.removeEventListener('vaultDocumentUploaded', handleVaultDocumentUploaded)
+      window.removeEventListener('vaultDocumentDeleted', handleVaultDocumentDeleted)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // loadVaultDocuments is stable, no need to include it
+
   const loadTaskData = async (taskId: number) => {
     setLoading(true)
     try {
