@@ -35,16 +35,26 @@ export default function Home() {
 
         // Try to get avatar URL (non-critical)
         try {
-          const { data: profile } = await supabase
+          const { data: profile, error: profileErr } = await supabase
             .from('profiles')
             .select('avatar_url')
             .eq('user_id', currentUser.id)
             .single()
           
-          if (profile?.avatar_url) {
-            setAvatarUrl(profile.avatar_url)
+          if (profileErr) {
+            console.warn('⚠️ Error loading avatar:', profileErr)
+          } else {
+            console.log('🖼️ Avatar URL from profile:', profile?.avatar_url)
+            if (profile?.avatar_url && typeof profile.avatar_url === 'string' && profile.avatar_url.trim() !== '') {
+              console.log('✅ Setting avatar URL:', profile.avatar_url)
+              setAvatarUrl(profile.avatar_url)
+            } else {
+              console.log('⚠️ No valid avatar URL found, using fallback')
+              setAvatarUrl(null)
+            }
           }
         } catch (err) {
+          console.warn('⚠️ Error loading avatar (catch):', err)
           // Continue without avatar
         }
 

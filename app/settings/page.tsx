@@ -84,10 +84,15 @@ export default function SettingsPage() {
       }
 
       console.log('✅ Profile loaded:', profile)
+      console.log('🖼️ Avatar URL from profile:', profile?.avatar_url)
       
-      // Set avatar URL if available
-      if (profile?.avatar_url) {
+      // Set avatar URL if available (check for non-empty string)
+      if (profile?.avatar_url && typeof profile.avatar_url === 'string' && profile.avatar_url.trim() !== '') {
+        console.log('✅ Setting avatar URL:', profile.avatar_url)
         setAvatarUrl(profile.avatar_url)
+      } else {
+        console.log('⚠️ No valid avatar URL found, using fallback')
+        setAvatarUrl(null)
       }
 
       // Load interests
