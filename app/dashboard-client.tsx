@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from '@/lib/link'
 import RegistrationFooter from '@/components/forms/RegistrationFooter'
 import AppHeader from '@/components/AppHeader'
+import { Vault } from 'lucide-react'
 
 interface DashboardClientProps {
   firstName: string
@@ -83,30 +84,30 @@ export default function DashboardClient({ firstName, avatarUrl }: DashboardClien
   const nextLevelPoints = 500
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#FAF6F0' }}>
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#FEFAF6' }}>
       {/* Header */}
       <AppHeader firstName={firstName} avatarUrl={avatarUrl} showHome={false} />
 
       {/* Main Content Area */}
       <div className="flex-1 flex gap-6 px-6 py-8">
         {/* Left: Main Content */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col relative">
           {/* Welcome Message */}
           <div className="mb-8">
-            <h1 className="text-4xl md:text-5xl font-bold mb-2" style={{ color: '#2D5016' }}>
+            <h1 className="font-bold mb-2" style={{ fontSize: '64px', lineHeight: '100%', color: '#294F3F' }}>
               Welcome, {firstName}!
             </h1>
-            <p className="text-lg" style={{ color: '#374151' }}>
+            <p className="font-bold" style={{ fontSize: '36px', lineHeight: '100%', color: '#294F3F' }}>
               Start building your Village in Switzerland today.
             </p>
           </div>
 
-          {/* Journey Selection */}
-          <div className="mb-8 flex flex-col items-center">
-            <h2 className="text-2xl font-bold mb-4 text-center" style={{ color: '#2D5016' }}>
+          {/* Journey Selection - Moved to bottom */}
+          <div className="mt-auto flex flex-col items-center w-full pb-8">
+            <h2 className="font-bold mb-6 text-center" style={{ fontSize: '32px', lineHeight: '100%', color: '#294F3F' }}>
               Choose your journey
             </h2>
-            <div className="flex flex-col gap-4 w-full max-w-md">
+            <div className="flex flex-col gap-10 w-full max-w-md mx-auto">
               {/* ESSENTIALS Card */}
               <Link href="/essentials" className="block relative">
                 <JourneyCard
@@ -122,7 +123,7 @@ export default function DashboardClient({ firstName, avatarUrl }: DashboardClien
                 <JourneyCard
                   title="CONNECT"
                   subtitle="Find your people"
-                  progress={connectProgress || 15}
+                  progress={connectProgress}
                   isCompleted={connectProgress === 100 && totalConnectTasks > 0}
                 />
               </div>
@@ -132,144 +133,76 @@ export default function DashboardClient({ firstName, avatarUrl }: DashboardClien
                 <JourneyCard
                   title="EXPLORE"
                   subtitle="Nature, culture & other gems"
-                  progress={exploreProgress || 47}
+                  progress={exploreProgress}
                   isCompleted={exploreProgress === 100 && totalExploreTasks > 0}
                 />
               </div>
             </div>
           </div>
 
-          {/* The Vault Section */}
-          <div className="mt-auto">
-            <h3 className="text-xl font-bold mb-4" style={{ color: '#2D5016' }}>
+          {/* The Vault Icon - Bottom Left Corner */}
+          <div className="absolute bottom-0 left-0 flex flex-col gap-3">
+            <h3 className="font-bold" style={{ fontSize: '36px', lineHeight: '100%', color: '#294F3F' }}>
               The Vault
             </h3>
-            <div className="flex items-center gap-4">
-              {/* Vault Icon with key */}
-              <div
-                className="w-20 h-20 rounded-lg flex items-center justify-center relative"
-                style={{ backgroundColor: '#2D5016' }}
-              >
-                <svg
-                  width="40"
-                  height="40"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="text-white"
-                >
-                  {/* Safe/Vault */}
-                  <rect x="4" y="10" width="16" height="12" rx="2" ry="2" />
-                  <path d="M8 10V6a4 4 0 0 1 8 0v4" />
-                  {/* Dial/Lock mechanism */}
-                  <circle cx="12" cy="16" r="2" />
-                  <circle cx="12" cy="16" r="0.5" fill="currentColor" />
-                  {/* Key */}
-                  <path d="M3 14l2-2m0 0l1-1m-1 1l-1 1m1-1l1 1" strokeWidth="1.5" />
-                </svg>
-              </div>
-            </div>
+            <Link
+              href="/vault"
+              className="w-64 h-64 rounded-lg flex items-center justify-center cursor-pointer hover:opacity-90 transition-all hover:scale-105 shadow-lg"
+              style={{ backgroundColor: '#294F3F', borderRadius: '10px' }}
+            >
+              <Vault className="text-white" size={144} strokeWidth={2.5} />
+            </Link>
           </div>
         </div>
 
         {/* Right: Sidebar */}
         <aside
-          className="w-80 rounded-lg p-6 flex flex-col shadow-lg"
-          style={{ backgroundColor: '#F2B75B', minHeight: '500px' }}
+          className="w-80 p-6 flex flex-col shadow-lg"
+          style={{ backgroundColor: 'rgba(233, 168, 67, 0.7)', borderRadius: '50px', minHeight: '600px' }}
         >
           {/* Points Total */}
-          <div className="mb-6">
-            <div className="text-5xl font-bold mb-1" style={{ color: '#FFFFFF' }}>
-              {pointsTotal}
-            </div>
-            <div className="text-sm" style={{ color: '#FAF6F0' }}>
+          <div className="mb-8 text-center">
+            <div className="font-bold mb-1" style={{ fontSize: '20px', lineHeight: '100%', color: '#FFFFFF' }}>
               Points Total
+            </div>
+            <div className="font-bold" style={{ fontSize: '64px', lineHeight: '100%', color: '#FFFFFF' }}>
+              {pointsTotal}
             </div>
           </div>
 
           {/* Level Badge */}
-          <div className="mb-6 flex flex-col items-center">
-            <div className="w-20 h-20 mb-3 flex items-center justify-center">
-              {/* Golden Badge with green leaf */}
-              <svg
-                width="80"
-                height="80"
-                viewBox="0 0 100 100"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                {/* Golden badge star shape */}
-                <path
-                  d="M50 10 L58 38 L88 38 L65 55 L73 85 L50 68 L27 85 L35 55 L12 38 L42 38 Z"
-                  fill="#F59E0B"
-                  stroke="#D97706"
-                  strokeWidth="2"
-                />
-                {/* Red ribbons */}
-                <path
-                  d="M30 20 L35 45 M70 20 L65 45"
-                  stroke="#DC2626"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                />
-                {/* Green leaf in center */}
-                <path
-                  d="M50 45 Q45 40 48 50 Q50 55 52 50 Q55 40 50 45"
-                  fill="#22C55E"
-                />
-                <path
-                  d="M48 48 Q50 52 52 48"
-                  fill="#16A34A"
-                />
-              </svg>
+          <div className="mb-8 flex flex-col items-center">
+            <div className="w-24 h-24 mb-3 flex items-center justify-center">
+              {/* Badge icon - using placeholder image area */}
+              <div className="w-full h-full rounded-full bg-white/20 flex items-center justify-center">
+                <svg width="76" height="76" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="50" cy="50" r="38" fill="#FFFFFF" opacity="0.3" />
+                  <circle cx="50" cy="50" r="30" fill="#FFFFFF" opacity="0.5" />
+                </svg>
+              </div>
             </div>
-            <div className="text-sm mb-1" style={{ color: '#FFFFFF' }}>
-              Level:
+            <div className="font-bold mb-1" style={{ fontSize: '20px', lineHeight: '100%', color: '#FFFFFF' }}>
+              Level: {currentLevel}
             </div>
-            <div className="text-2xl font-bold mb-1" style={{ color: '#FFFFFF' }}>
-              {currentLevel}
-            </div>
-            <div className="text-sm text-center" style={{ color: '#FAF6F0', opacity: 0.9 }}>
+            <div className="font-bold text-center" style={{ fontSize: '10px', lineHeight: '100%', color: '#FFFFFF' }}>
               next badge at {nextLevelPoints} pts
             </div>
           </div>
 
           {/* Streak Days */}
           <div className="mt-auto flex flex-col items-center">
-            {/* Flame Icon - colorful */}
-            <div className="mb-2">
-              <svg
-                width="32"
-                height="32"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                {/* Outer flame - red/orange */}
-                <path
-                  d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"
-                  fill="#EF4444"
-                />
-                {/* Inner flame - yellow */}
-                <path
-                  d="M10 13a2 2 0 0 0 1.5-.5c-.3-1-.7-2-1-3-.3-1.5 0-3 1-4.5.5 2 1.5 3.5 2.5 4.5 1 1 1.5 2.5 1.5 4a5 5 0 1 1-10 0c0-.8.3-1.6.8-2.2a2 2 0 0 0 1.7 1.7z"
-                  fill="#F59E0B"
-                />
-                {/* Core - yellow/white */}
-                <path
-                  d="M11 12.5c-.2-.8-.5-1.5-1-2-.5-1 0-2 .5-3 .3 1 .7 1.8 1 2.5.3.7.5 1.5.5 2.5z"
-                  fill="#FDE047"
-                />
-              </svg>
+            {/* Flame Icon */}
+            <div className="mb-2 w-20 h-20 flex items-center justify-center">
+              <div className="w-full h-full rounded-full bg-white/20 flex items-center justify-center">
+                <svg width="76" height="76" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="50" cy="50" r="38" fill="#FFFFFF" opacity="0.3" />
+                </svg>
+              </div>
             </div>
-            <div className="text-sm mb-1" style={{ color: '#FFFFFF' }}>
-              Streak days:
+            <div className="font-bold mb-1" style={{ fontSize: '20px', lineHeight: '100%', color: '#FFFFFF' }}>
+              Streak days: {streakDays}
             </div>
-            <div className="text-2xl font-bold mb-1" style={{ color: '#FFFFFF' }}>
-              {streakDays}
-            </div>
-            <div className="text-xs text-center mt-2" style={{ color: '#FAF6F0', opacity: 0.9 }}>
+            <div className="font-bold text-center px-4 mt-2" style={{ fontSize: '16px', lineHeight: '100%', color: '#FFFFFF' }}>
               Advance your journeys to get badges for rewards & perks!
             </div>
           </div>
@@ -295,43 +228,39 @@ function JourneyCard({ title, subtitle, progress, isCompleted }: JourneyCardProp
   return (
     <div className="relative">
       <div
-        className="relative rounded-lg p-6 cursor-pointer hover:opacity-90 transition-opacity shadow-md"
-        style={{ backgroundColor: '#F2B75B' }}
+        className="relative cursor-pointer hover:opacity-90 transition-opacity"
+        style={{ 
+          backgroundColor: isCompleted ? 'rgba(233, 168, 67, 0.7)' : '#E9A843',
+          border: isCompleted ? '5px solid #F8EDE0' : '5px solid #E9A843',
+          borderRadius: '8px',
+          minHeight: '140px',
+          padding: '24px',
+          filter: 'drop-shadow(0px 4px 4px rgba(0, 0, 0, 0.25))'
+        }}
       >
         {/* Progress Badge (Top Right - small circle) */}
         <div
-          className="absolute top-4 right-4 w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold"
-          style={{ backgroundColor: '#2D5016', color: '#F2B75B' }}
+          className="absolute top-4 right-4 w-11 h-11 rounded-full flex items-center justify-center font-bold"
+          style={{ 
+            backgroundColor: '#F8EDE0',
+            color: '#DA5B37',
+            fontSize: '12px',
+            lineHeight: '100%'
+          }}
         >
           {progress}%
         </div>
 
         {/* Content */}
-        <div className="pr-16">
-          <h3 className="text-xl font-bold mb-1 text-white">{title}</h3>
-          <p className="text-sm" style={{ color: '#FFFFFF' }}>
+        <div className="pr-16 h-full flex flex-col justify-center">
+          <h3 className="font-bold mb-4 text-center" style={{ fontSize: '24px', lineHeight: '100%', color: '#FFFFFF' }}>
+            {title}
+          </h3>
+          <p className="font-bold text-center" style={{ fontSize: '12px', lineHeight: '100%', color: '#FFFFFF' }}>
             {subtitle}
           </p>
         </div>
       </div>
-
-      {/* Completed Badge (Outside right of card) */}
-      {isCompleted && (
-        <div className="absolute -right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center shadow-lg" style={{ backgroundColor: '#22C55E' }}>
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="white"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        </div>
-      )}
     </div>
   )
 }

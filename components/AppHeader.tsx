@@ -25,7 +25,7 @@ export default function AppHeader({ firstName, avatarUrl, showHome = false }: Ap
   }
 
   return (
-    <header className="w-full" style={{ backgroundColor: '#2D5016' }}>
+    <header className="w-full" style={{ backgroundColor: '#294F3F' }}>
       <div className="flex items-center justify-between px-6 py-4">
         {/* Left side: Home button (optional) */}
         <div className="flex items-center">
@@ -52,12 +52,8 @@ export default function AppHeader({ firstName, avatarUrl, showHome = false }: Ap
           )}
         </div>
 
-        {/* Center: Logo */}
-        <div className="flex-1 flex justify-center">
-          <Link href="/" className="flex items-center justify-center">
-            <VillageLogo />
-          </Link>
-        </div>
+        {/* Center: Empty (Logo removed) */}
+        <div className="flex-1"></div>
 
         {/* Right side: Profile Picture, Settings & Logout */}
         <div className="flex flex-col items-end gap-2">
@@ -102,56 +98,4 @@ export default function AppHeader({ firstName, avatarUrl, showHome = false }: Ap
   )
 }
 
-// Village Logo Component - Colorful abstract flower/star
-function VillageLogo() {
-  return (
-    <div className="w-12 h-12 relative">
-      <svg
-        width="48"
-        height="48"
-        viewBox="0 0 48 48"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        {/* Center circle */}
-        <circle cx="24" cy="24" r="8" fill="#F2B75B" />
-        
-        {/* V-shaped petals around center */}
-        <path
-          d="M24 8 L28 20 L24 16 L20 20 Z"
-          fill="#2D5016"
-        />
-        <path
-          d="M40 24 L28 20 L32 24 L28 28 Z"
-          fill="#3D6A20"
-        />
-        <path
-          d="M24 40 L28 28 L24 32 L20 28 Z"
-          fill="#22C55E"
-        />
-        <path
-          d="M8 24 L20 28 L16 24 L20 20 Z"
-          fill="#10B981"
-        />
-        {/* Additional petals for more colors */}
-        <path
-          d="M35 15 L30 22 L32 20 L34 18 Z"
-          fill="#3B82F6"
-        />
-        <path
-          d="M35 33 L30 26 L32 28 L34 30 Z"
-          fill="#8B5CF6"
-        />
-        <path
-          d="M13 15 L18 22 L16 20 L14 18 Z"
-          fill="#EC4899"
-        />
-        <path
-          d="M13 33 L18 26 L16 28 L14 30 Z"
-          fill="#F59E0B"
-        />
-      </svg>
-    </div>
-  )
-}
 

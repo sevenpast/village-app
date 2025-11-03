@@ -9,22 +9,6 @@ import Link from '@/lib/link'
 export default function RegistrationFooter() {
   return (
     <>
-      {/* Privacy Statement */}
-      <div className="max-w-4xl mx-auto px-4 py-6 text-center">
-        <p className="text-sm text-gray-700 max-w-3xl mx-auto">
-          We care about your privacy. By signing up, you agree to our{' '}
-          <Link href="/privacy" className="underline hover:no-underline">
-            Privacy Policy
-          </Link>{' '}
-          and{' '}
-          <Link href="/terms" className="underline hover:no-underline">
-            Terms of Use
-          </Link>
-          . We'll only use your information to support your experience and will never share your
-          sensitive data with third parties without your consent.
-        </p>
-      </div>
-
       {/* Footer Bar */}
       <footer
         className="w-full px-4 py-4 flex justify-between items-center text-sm"
