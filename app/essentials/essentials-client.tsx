@@ -6,7 +6,7 @@ import RegistrationFooter from '@/components/forms/RegistrationFooter'
 import GemeindeRegistrationInfobox from './gemeinde-registration-infobox'
 import { getMunicipalityUrl } from '@/lib/municipality-urls'
 import AppHeader from '@/components/AppHeader'
-import { Vault } from 'lucide-react'
+import { Vault, Archive, Bell } from 'lucide-react'
 
 interface EssentialsClientProps {
   firstName: string
@@ -39,6 +39,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   const [goal, setGoal] = useState('')
   const [taskStatus, setTaskStatus] = useState<Record<number, boolean>>({}) // Track done status per task
   const [reminderDays, setReminderDays] = useState<Record<number, number>>({}) // Track reminder days per task
+  const [reminderEnabled, setReminderEnabled] = useState<Record<number, boolean>>({}) // Track if reminder is enabled per task
   const [completedDates, setCompletedDates] = useState<Record<number, string>>({}) // Track completion dates
   const [expandedResources, setExpandedResources] = useState<Record<number, Set<string>>>({})
   const [expandedFAQs, setExpandedFAQs] = useState<Record<number, Set<number>>>({}) // Task ID -> Set of FAQ indices
@@ -58,14 +59,71 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   // Get current task's done status
   const isDone = selectedTask ? taskStatus[selectedTask] || false : false
   const currentReminderDays = selectedTask ? reminderDays[selectedTask] || 7 : 7
+  const isReminderEnabled = selectedTask ? reminderEnabled[selectedTask] || false : false
 
-  const tasks: Task[] = [
+  // All tasks
+  const allTasks: Task[] = [
     { id: 1, title: 'Secure residence permit / visa', number: 1 },
     { id: 2, title: 'Register at the Gemeinde (municipality)', number: 2 },
     { id: 3, title: 'Find a place that fits your needs', number: 3 },
     { id: 4, title: 'Register your kids at school / kindergarten', number: 4 },
     { id: 5, title: 'Receive residence permit card', number: 5 },
   ]
+
+  // State for filtered tasks (reactive to localStorage changes)
+  const [tasks, setTasks] = useState<Task[]>(allTasks) // Initialize with all tasks, then filter in useEffect
+
+  // Update tasks list when localStorage changes
+  useEffect(() => {
+    const updateTasks = () => {
+      // Check if we're in browser environment
+      if (typeof window === 'undefined') return
+      
+      const filtered = allTasks.filter(task => {
+        const isArchived = localStorage.getItem(`task_${task.id}_done`) === 'true'
+        return !isArchived
+      })
+      setTasks(filtered)
+      
+      // If current selected task is archived, switch to first available task
+      if (selectedTask) {
+        const isCurrentTaskArchived = localStorage.getItem(`task_${selectedTask}_done`) === 'true'
+        if (isCurrentTaskArchived) {
+          if (filtered.length > 0) {
+            setSelectedTask(filtered[0].id)
+          } else {
+            setSelectedTask(null)
+            setTaskData(null)
+          }
+        }
+      } else if (filtered.length > 0 && !selectedTask) {
+        // If no task selected but tasks are available, select the first one
+        setSelectedTask(filtered[0].id)
+      }
+    }
+
+    updateTasks()
+
+    // Listen for storage changes
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key && e.key.startsWith('task_') && e.key.endsWith('_done')) {
+        updateTasks()
+      }
+    }
+
+    // Listen for custom event (same-page updates)
+    const handleTaskUpdate = () => {
+      updateTasks()
+    }
+
+    window.addEventListener('storage', handleStorageChange)
+    window.addEventListener('taskCompleted', handleTaskUpdate)
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+      window.removeEventListener('taskCompleted', handleTaskUpdate)
+    }
+  }, [selectedTask])
 
   // Load task data when task is selected
   useEffect(() => {
@@ -104,12 +162,16 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       // For now, initialize from localStorage if available
       const savedStatus = localStorage.getItem(`task_${taskId}_done`)
       const savedReminder = localStorage.getItem(`task_${taskId}_reminder`)
+      const savedReminderEnabled = localStorage.getItem(`task_${taskId}_reminder_enabled`)
       const savedCompletedDate = localStorage.getItem(`task_${taskId}_completed_date`)
       if (savedStatus === 'true') {
         setTaskStatus(prev => ({ ...prev, [taskId]: true }))
       }
       if (savedReminder) {
         setReminderDays(prev => ({ ...prev, [taskId]: Number(savedReminder) }))
+      }
+      if (savedReminderEnabled === 'true') {
+        setReminderEnabled(prev => ({ ...prev, [taskId]: true }))
       }
       if (savedCompletedDate) {
         setCompletedDates(prev => ({ ...prev, [taskId]: savedCompletedDate }))
@@ -231,7 +293,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       localStorage.setItem(`task_${selectedTask}_completed_date`, completionDate)
       
       try {
-        // API call to mark task as completed
+        // API call to mark task as completed and archived
         const response = await fetch(`/api/tasks/${selectedTask}/complete`, { 
           method: 'POST',
         })
@@ -240,7 +302,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           throw new Error('Failed to save task completion')
         }
         
-        console.log(`Task ${selectedTask} marked as completed on ${completionDate}`)
+        console.log(`Task ${selectedTask} marked as completed and archived on ${completionDate}`)
         
         // Dispatch custom event to update progress on dashboard and essentials page
         window.dispatchEvent(new Event('taskCompleted'))
@@ -250,6 +312,21 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           key: `task_${selectedTask}_done`,
           newValue: 'true',
         }))
+        
+        // Remove task from view (it will be filtered out since it's now archived)
+        // If this was the selected task, switch to the first available task
+        const remainingTasks = allTasks.filter(task => {
+          const isArchived = task.id === selectedTask || localStorage.getItem(`task_${task.id}_done`) === 'true'
+          return !isArchived
+        })
+        
+        if (remainingTasks.length > 0) {
+          setSelectedTask(remainingTasks[0].id)
+        } else {
+          // All tasks are done, no task selected
+          setSelectedTask(null)
+          setTaskData(null)
+        }
         
         // Cancel reminder when task is done (as per user story)
         // The reminder input will be automatically disabled
@@ -267,6 +344,49 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     }
   }
   
+  const handleReminderToggle = async () => {
+    if (!selectedTask || isDone) return
+    
+    const newEnabledState = !isReminderEnabled
+    
+    // Update local state immediately
+    setReminderEnabled(prev => ({ ...prev, [selectedTask]: newEnabledState }))
+    localStorage.setItem(`task_${selectedTask}_reminder_enabled`, newEnabledState.toString())
+    
+    // Show "saving" status
+    setReminderSaveStatus('saving')
+    
+    try {
+      const response = await fetch(`/api/tasks/${selectedTask}/reminder`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          days: currentReminderDays,
+          enabled: newEnabledState 
+        }),
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+        console.warn('⚠️ Reminder API returned non-ok status:', response.status, errorData)
+        setReminderSaveStatus('error')
+        setTimeout(() => setReminderSaveStatus('idle'), 2000)
+        return
+      }
+      
+      const data = await response.json()
+      console.log(`✅ Reminder ${newEnabledState ? 'enabled' : 'disabled'} for task ${selectedTask}`, data)
+      setReminderSaveStatus('saved')
+      setTimeout(() => setReminderSaveStatus('idle'), 2000)
+    } catch (error) {
+      console.warn('⚠️ Error saving reminder to database (using localStorage only):', error)
+      setReminderSaveStatus('error')
+      setTimeout(() => setReminderSaveStatus('idle'), 2000)
+    }
+  }
+
   const handleReminderChange = (days: number) => {
     if (!selectedTask || isDone) return
     
@@ -290,7 +410,10 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ days }),
+          body: JSON.stringify({ 
+            days,
+            enabled: isReminderEnabled 
+          }),
         })
         
         if (!response.ok) {
@@ -1432,7 +1555,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           </h1>
           
           <div className="flex gap-6 items-start">
-            {/* Vault Icon + Bell - Aligned with first task */}
+            {/* Vault Icon + Bell + Archive - Aligned with first task */}
             <div className="flex-shrink-0 flex flex-col gap-3">
               <Link
                 href="/vault"
@@ -1441,24 +1564,32 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
               >
                 <Vault className="text-white" size={48} strokeWidth={2.5} />
               </Link>
-              {/* Bell Icon - Same style as Vault */}
-              <button className="w-20 h-20 rounded-lg flex items-center justify-center cursor-pointer hover:opacity-90 transition-all hover:scale-105 shadow-md"
+              {/* Bell Icon - Red when reminder is enabled for current task */}
+              <button 
+                onClick={() => selectedTask && !isDone && handleReminderToggle()}
+                className="w-20 h-20 rounded-lg flex items-center justify-center cursor-pointer hover:opacity-90 transition-all hover:scale-105 shadow-md"
+                style={{ 
+                  backgroundColor: '#294F3F', 
+                  borderRadius: '10px'
+                }}
+                disabled={!selectedTask || isDone}
+                title={selectedTask && !isDone ? (isReminderEnabled ? 'Disable reminder' : 'Enable reminder') : 'Select a task to set reminder'}
+              >
+                <Bell 
+                  className={selectedTask && isReminderEnabled && !isDone ? 'text-red-500' : 'text-white'} 
+                  size={48} 
+                  strokeWidth={2.5} 
+                  fill={selectedTask && isReminderEnabled && !isDone ? 'rgb(239, 68, 68)' : 'none'}
+                />
+              </button>
+              {/* Archive Icon - Same style as Vault and Bell */}
+              <Link
+                href="/essentials/archive"
+                className="w-20 h-20 rounded-lg flex items-center justify-center cursor-pointer hover:opacity-90 transition-all hover:scale-105 shadow-md"
                 style={{ backgroundColor: '#294F3F', borderRadius: '10px' }}
               >
-                <svg
-                  width="48"
-                  height="48"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="white"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                </svg>
-              </button>
+                <Archive className="text-white" size={48} strokeWidth={2.5} />
+              </Link>
             </div>
 
             {/* Task List */}
@@ -1588,18 +1719,20 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                   </button>
 
                   {/* Remind me in X days */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-4">
+                    {/* Bell Icon - Red when reminder is enabled */}
                     <svg
                       width="20"
                       height="20"
                       viewBox="0 0 24 24"
-                      fill="none"
-                      stroke={isDone ? '#9CA3AF' : '#374151'}
+                      fill={isReminderEnabled && !isDone ? '#EF4444' : 'none'}
+                      stroke={isReminderEnabled && !isDone ? '#EF4444' : (isDone ? '#9CA3AF' : '#374151')}
                       strokeWidth="2"
                     >
                       <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
                       <path d="M13.73 21a2 2 0 0 1-3.46 0" />
                     </svg>
+                    
                     <span className="text-base" style={{ color: isDone ? '#9CA3AF' : '#374151' }}>
                       Remind me in{' '}
                       <input
@@ -1617,34 +1750,58 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                         }}
                       />{' '}
                       days.
-                      {reminderSaveStatus === 'saving' && (
-                        <span className="ml-2 text-sm" style={{ color: '#6B7280' }}>
-                          (saving...)
-                        </span>
-                      )}
-                      {reminderSaveStatus === 'saved' && (
-                        <span className="ml-2 text-sm flex items-center gap-1" style={{ color: '#22C55E' }}>
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="3"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                          saved
-                        </span>
-                      )}
-                      {reminderSaveStatus === 'error' && (
-                        <span className="ml-2 text-sm" style={{ color: '#EF4444' }}>
-                          (saved locally)
-                        </span>
-                      )}
                     </span>
+                    
+                    {!isReminderEnabled && !isDone && (
+                      <button
+                        onClick={handleReminderToggle}
+                        className="px-3 py-1 rounded text-sm font-medium transition-opacity hover:opacity-80 underline"
+                        style={{ color: '#2D5016' }}
+                      >
+                        Activate reminder
+                      </button>
+                    )}
+                    {isReminderEnabled && !isDone && (
+                      <>
+                        <span className="text-sm" style={{ color: '#EF4444' }}>
+                          (active)
+                        </span>
+                        <button
+                          onClick={handleReminderToggle}
+                          className="px-3 py-1 rounded text-sm font-medium transition-opacity hover:opacity-80 underline"
+                          style={{ color: '#EF4444' }}
+                        >
+                          Deactivate reminder
+                        </button>
+                      </>
+                    )}
+                    {reminderSaveStatus === 'saving' && (
+                      <span className="text-sm" style={{ color: '#6B7280' }}>
+                        (saving...)
+                      </span>
+                    )}
+                    {reminderSaveStatus === 'saved' && (
+                      <span className="text-sm flex items-center gap-1" style={{ color: '#22C55E' }}>
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                        saved
+                      </span>
+                    )}
+                    {reminderSaveStatus === 'error' && (
+                      <span className="text-sm" style={{ color: '#EF4444' }}>
+                        (saved locally)
+                      </span>
+                    )}
                   </div>
                 </div>
 

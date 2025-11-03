@@ -28,8 +28,48 @@ export async function POST(
     }
 
     const body = await request.json()
-    const { days } = body
+    const { days, enabled } = body
 
+    // If enabled is explicitly false, cancel the reminder
+    if (enabled === false) {
+      try {
+        const { data: existingReminders } = await supabase
+          .from('task_reminders')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('task_id', taskId)
+          .eq('status', 'pending')
+        
+        if (existingReminders && existingReminders.length > 0) {
+          // Cancel all pending reminders for this task
+          for (const reminder of existingReminders) {
+            await supabase
+              .from('task_reminders')
+              .update({
+                status: 'cancelled',
+                cancelled_at: new Date().toISOString(),
+              })
+              .eq('id', reminder.id)
+          }
+        }
+
+        return NextResponse.json({
+          success: true,
+          enabled: false,
+          status: 'cancelled',
+        })
+      } catch (dbError: any) {
+        console.log('Database storage not available for reminder cancellation:', dbError.message)
+        return NextResponse.json({
+          success: true,
+          enabled: false,
+          status: 'cancelled',
+          note: 'Stored in localStorage (database not available)',
+        })
+      }
+    }
+
+    // If enabled is true or undefined, set/update the reminder
     if (!days || typeof days !== 'number' || days < 1 || days > 30) {
       return NextResponse.json(
         { error: 'Invalid reminder days. Must be between 1 and 30.' },

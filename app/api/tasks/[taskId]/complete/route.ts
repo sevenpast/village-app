@@ -52,12 +52,13 @@ export async function POST(
           .maybeSingle()
 
         if (existingTask) {
-          // Update existing entry
+          // Update existing entry - mark as done and archive it
           const { error: updateError } = await supabase
             .from('user_tasks')
             .update({
               status: 'done',
               completed_at: completedAt,
+              archived_at: completedAt, // Archive the task when marked as done
               updated_at: completedAt,
             })
             .eq('user_id', user.id)
@@ -68,7 +69,7 @@ export async function POST(
             // Continue - localStorage will handle it
           }
         } else {
-          // Create new entry
+          // Create new entry - mark as done and archive it
           const { error: insertError } = await supabase
             .from('user_tasks')
             .insert({
@@ -76,6 +77,7 @@ export async function POST(
               task_id: taskUuid,
               status: 'done',
               completed_at: completedAt,
+              archived_at: completedAt, // Archive the task when marked as done
             })
 
           if (insertError) {
