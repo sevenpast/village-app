@@ -54,6 +54,7 @@ export function getServerBaseUrl(): string {
 /**
  * Get the base URL specifically for email confirmations
  * Always uses production URL for email links to ensure they work correctly
+ * IMPORTANT: Never uses VERCEL_URL as it might point to preview deployments
  */
 export function getEmailBaseUrl(): string {
   // 1. Check explicit email environment variable (highest priority)
@@ -62,18 +63,15 @@ export function getEmailBaseUrl(): string {
     return url.endsWith('/') ? url.slice(0, -1) : url
   }
 
-  // 2. Check if we're in production or on Vercel - use production URL
-  if (process.env.NODE_ENV === 'production' || process.env.VERCEL === '1' || process.env.VERCEL_ENV) {
-    // Try to use Vercel URL if available
-    if (process.env.VERCEL_URL) {
-      return `https://${process.env.VERCEL_URL}`
-    }
-    // Otherwise use hardcoded production URL
-    return 'https://village-app-phi.vercel.app'
+  // 2. Check explicit app URL (second priority)
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    const url = process.env.NEXT_PUBLIC_APP_URL.trim()
+    return url.endsWith('/') ? url.slice(0, -1) : url
   }
 
-  // 3. For development, still use production URL for emails
-  // This ensures email links work even when developing locally
+  // 3. ALWAYS use hardcoded production URL for emails
+  // We do NOT use VERCEL_URL because it might be a preview deployment
+  // This ensures all email links always point to the production URL
   return 'https://village-app-phi.vercel.app'
 }
 
