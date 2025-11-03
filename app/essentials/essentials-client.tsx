@@ -798,15 +798,8 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                 <div className="flex items-center gap-6 mb-6 pb-6 border-b" style={{ borderColor: '#E5E7EB' }}>
                   {/* I have done this - Checkbox */}
                   <button
-                    onClick={() => {
-                      alert(`Debug: selectedTask=${selectedTask}, isDone=${isDone}, taskStatus=${JSON.stringify(taskStatus)}, disabled=${isDone}`)
-                      if (!isDone) {
-                        handleTaskComplete(!isDone)
-                      } else {
-                        alert('Button is disabled because task is already done!')
-                      }
-                    }}
-                    disabled={false}
+                    onClick={() => handleTaskComplete(!isDone)}
+                    disabled={isDone}
                     className={`flex items-center gap-2 text-base font-medium transition-opacity ${
                       isDone ? 'cursor-default opacity-100' : 'cursor-pointer hover:opacity-80'
                     }`}
