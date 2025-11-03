@@ -17,7 +17,7 @@ const registerSchema = z.object({
   first_name: z.string().min(1, 'First name is required'),
   last_name: z.string().min(1, 'Last name is required'),
   gender: z.string().optional(),
-  date_of_birth: z.string().optional(),
+  date_of_birth: z.string().min(1, 'Date of birth is required'),
   country_of_origin: z.string().optional(), // Country ID as string
   primary_language: z.string().optional(),
   living_situation: z.string().optional(),
@@ -38,12 +38,22 @@ const registerSchema = z.object({
 })
 
 export async function POST(request: Request) {
+  console.log('🚀 Registration API called')
   try {
     const body = await request.json()
+    console.log('📥 Registration data received:', {
+      email: body.email,
+      hasPassword: !!body.password,
+      firstName: body.first_name,
+      lastName: body.last_name,
+      hasDateOfBirth: !!body.date_of_birth,
+      interestsCount: body.interests?.length || 0,
+    })
 
     // Validate input
     const validation = registerSchema.safeParse(body)
     if (!validation.success) {
+      console.error('❌ Validation failed:', validation.error.issues)
       return NextResponse.json(
         { error: 'Validation failed', details: validation.error.issues },
         { status: 400 }
@@ -284,7 +294,8 @@ export async function POST(request: Request) {
       firstName: data.first_name,
     })
   } catch (error) {
-    console.error('Registration error:', error)
+    console.error('❌ Registration error:', error)
+    console.error('Error stack:', error instanceof Error ? error.stack : undefined)
     return NextResponse.json(
       {
         error: 'Internal server error',

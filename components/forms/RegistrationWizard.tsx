@@ -393,25 +393,51 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
       })
 
       console.log('API response status:', response.status, response.statusText)
+      
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text()
+        console.error('❌ Non-JSON response:', text)
+        methods.setError('root', {
+          type: 'manual',
+          message: `Server error: ${response.statusText}. Please try again.`,
+        })
+        return
+      }
+      
       const result = await response.json()
       console.log('API response result:', result)
 
       if (!response.ok) {
+        console.error('❌ Registration failed:', {
+          status: response.status,
+          error: result.error,
+          details: result.details,
+        })
+        
         // Handle errors
         if (result.error === 'Passwords do not match') {
           methods.setError('password_confirm', {
             type: 'manual',
             message: 'Passwords must match',
           })
-        } else if (result.error?.includes('already exists')) {
+        } else if (result.error?.includes('already exists') || result.error?.includes('already been registered')) {
           methods.setError('email', {
             type: 'manual',
             message: 'An account with this email already exists',
           })
+        } else if (result.details && Array.isArray(result.details)) {
+          // Zod validation errors
+          const firstError = result.details[0]
+          methods.setError(firstError.path?.[0] || 'root', {
+            type: 'manual',
+            message: firstError.message || 'Validation error',
+          })
         } else {
           methods.setError('root', {
             type: 'manual',
-            message: result.error || 'Registration failed. Please try again.',
+            message: result.error || `Registration failed (${response.status}). Please try again.`,
           })
         }
         return
@@ -438,11 +464,25 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
         console.warn('⚠️ onComplete callback not provided')
       }
     } catch (error) {
-      console.error('Registration error:', error)
-      methods.setError('root', {
-        type: 'manual',
-        message: 'Network error. Please check your connection and try again.',
+      console.error('❌ Registration error:', error)
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : undefined,
       })
+      
+      // Check if it's a network error
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        methods.setError('root', {
+          type: 'manual',
+          message: 'Network error. Please check your internet connection and try again.',
+        })
+      } else {
+        methods.setError('root', {
+          type: 'manual',
+          message: error instanceof Error ? error.message : 'Registration failed. Please try again.',
+        })
+      }
     }
   }
 
@@ -607,19 +647,53 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
                     
                     // Validate all REQUIRED fields (obligatorisch): first_name, last_name, email, password, password_confirm, date_of_birth
                     const requiredFields = ['first_name', 'last_name', 'email', 'password', 'password_confirm', 'date_of_birth']
+                    console.log('🔍 Validating required fields:', requiredFields)
+                    console.log('📋 Current form values:', {
+                      first_name: formData.first_name ? '✓' : '✗',
+                      last_name: formData.last_name ? '✓' : '✗',
+                      email: formData.email ? '✓' : '✗',
+                      password: formData.password ? '✓' : '✗',
+                      password_confirm: formData.password_confirm ? '✓' : '✗',
+                      date_of_birth: formData.date_of_birth ? '✓' : '✗',
+                    })
+                    
                     const isValid = await methods.trigger(requiredFields as any)
+                    console.log('✅ Validation result:', isValid)
                     
                     if (!isValid) {
-                      console.error('❌ Required fields missing')
+                      console.error('❌ Required fields validation failed')
+                      const errors = methods.formState.errors
+                      console.error('Validation errors:', errors)
+                      
                       const missingFields: string[] = []
                       requiredFields.forEach(field => {
                         const value = formData[field]
-                        if (!value || (typeof value === 'string' && value.trim() === '')) {
-                          missingFields.push(field.replace('_', ' '))
+                        const fieldError = errors[field as keyof typeof errors]
+                        
+                        if (!value || (typeof value === 'string' && value.trim() === '') || fieldError) {
+                          const fieldName = field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+                          missingFields.push(fieldName)
                         }
                       })
-                      alert(`Please fill in all required fields: ${missingFields.join(', ')}`)
-                      return
+                      
+                      if (missingFields.length > 0) {
+                        alert(`Please fill in all required fields: ${missingFields.join(', ')}`)
+                        return
+                      }
+                      
+                      // If no missing fields but validation failed, show generic error
+                      const errorMessages = Object.keys(errors)
+                        .filter(key => requiredFields.includes(key))
+                        .map(key => {
+                          const error = errors[key as keyof typeof errors]
+                          return error?.message || `${key} is invalid`
+                        })
+                        .filter(msg => msg)
+                      
+                      if (errorMessages.length > 0) {
+                        alert(`Please fix the following errors:\n${errorMessages.join('\n')}`)
+                        return
+                      }
                     }
                     
                     // Check password match
