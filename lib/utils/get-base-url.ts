@@ -54,23 +54,24 @@ export function getServerBaseUrl(): string {
 /**
  * Get the base URL specifically for email confirmations
  * Always uses production URL for email links to ensure they work correctly
- * IMPORTANT: Never uses VERCEL_URL as it might point to preview deployments
+ * IMPORTANT: Never uses VERCEL_URL or NEXT_PUBLIC_APP_URL as they might point to preview deployments
  */
 export function getEmailBaseUrl(): string {
   // 1. Check explicit email environment variable (highest priority)
+  // Only use if it explicitly points to production URL
   if (process.env.NEXT_PUBLIC_EMAIL_BASE_URL) {
     const url = process.env.NEXT_PUBLIC_EMAIL_BASE_URL.trim()
-    return url.endsWith('/') ? url.slice(0, -1) : url
+    const cleanUrl = url.endsWith('/') ? url.slice(0, -1) : url
+    // Only use if it's the production URL, otherwise ignore it
+    if (cleanUrl === 'https://village-app-phi.vercel.app') {
+      return cleanUrl
+    }
+    // If it's not the production URL, log warning and use production anyway
+    console.warn('⚠️ NEXT_PUBLIC_EMAIL_BASE_URL is set but not pointing to production URL, using production URL instead:', cleanUrl)
   }
 
-  // 2. Check explicit app URL (second priority)
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    const url = process.env.NEXT_PUBLIC_APP_URL.trim()
-    return url.endsWith('/') ? url.slice(0, -1) : url
-  }
-
-  // 3. ALWAYS use hardcoded production URL for emails
-  // We do NOT use VERCEL_URL because it might be a preview deployment
+  // 2. ALWAYS use hardcoded production URL for emails
+  // We do NOT use VERCEL_URL or NEXT_PUBLIC_APP_URL because they might be preview deployments
   // This ensures all email links always point to the production URL
   return 'https://village-app-phi.vercel.app'
 }
