@@ -387,6 +387,48 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     }
   }
 
+  const handleDownloadDocuments = async () => {
+    if (!selectedTask) return
+
+    try {
+      const response = await fetch(`/api/tasks/${selectedTask}/download-documents`)
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to download documents' }))
+        console.error('Download error:', errorData)
+        
+        // Show detailed error message with debug info if available
+        let errorMessage = errorData.error || 'Failed to download documents.'
+        
+        if (errorData.debug) {
+          console.log('Debug info:', errorData.debug)
+          errorMessage += `\n\nDebug info:\n- Available document types in vault: ${errorData.debug.availableTypes?.join(', ') || 'none'}\n- Total documents: ${errorData.debug.totalDocuments || 0}\n\nPlease check the browser console for more details.`
+        } else {
+          errorMessage += '\n\nMake sure you have uploaded the required documents to the vault.'
+        }
+        
+        alert(errorMessage)
+        return
+      }
+
+      // Get the ZIP file as blob
+      const blob = await response.blob()
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `task-${selectedTask}-documents.zip`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('Error downloading documents:', error)
+      alert('Failed to download documents. Please try again.')
+    }
+  }
+
   const handleReminderChange = (days: number) => {
     if (!selectedTask || isDone) return
     
@@ -1915,6 +1957,17 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                               No results found for &quot;{getCurrentTaskSearchQuery()}&quot;
                             </p>
                           )}
+                          {/* Download Documents Button - Below the list */}
+                          <div className="mt-4 pt-4 border-t" style={{ borderColor: '#E5E7EB' }}>
+                            <button
+                              onClick={handleDownloadDocuments}
+                              className="w-full px-4 py-2 rounded-lg font-medium transition-opacity hover:opacity-80"
+                              style={{ backgroundColor: '#2D5016', color: '#FFFFFF' }}
+                              title="Download all required documents as ZIP"
+                            >
+                              Download Documents
+                            </button>
+                          </div>
                         </div>
                       )}
                     </>
