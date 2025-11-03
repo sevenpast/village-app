@@ -609,9 +609,11 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
                   <span className="text-xs text-gray-500">
                     {formatFileSize(doc.file_size)}
                   </span>
-                  <span className={`text-xs px-2 py-1 rounded ${getStatusColor(doc.processing_status)}`}>
-                    {doc.processing_status}
-                  </span>
+                  {doc.processing_status !== 'completed' && (
+                    <span className={`text-xs px-2 py-1 rounded ${getStatusColor(doc.processing_status)}`}>
+                      {doc.processing_status}
+                    </span>
+                  )}
                 </div>
                 {doc.document_type && (
                   <p className="text-xs text-gray-600 mb-1">
