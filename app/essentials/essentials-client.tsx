@@ -123,13 +123,6 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   }
 
   const handleTaskComplete = async (checked: boolean) => {
-    console.log('🚀 handleTaskComplete called:', {
-      checked,
-      selectedTask,
-      isDone,
-      willReturn: !selectedTask || isDone
-    })
-
     if (!selectedTask || isDone) return // Don't allow unchecking once done
 
     // Update local state immediately
@@ -806,10 +799,14 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                   {/* I have done this - Checkbox */}
                   <button
                     onClick={() => {
-                      console.log('🖱️ Complete button clicked:', { selectedTask, isDone, willCall: !isDone })
-                      handleTaskComplete(!isDone)
+                      alert(`Debug: selectedTask=${selectedTask}, isDone=${isDone}, taskStatus=${JSON.stringify(taskStatus)}, disabled=${isDone}`)
+                      if (!isDone) {
+                        handleTaskComplete(!isDone)
+                      } else {
+                        alert('Button is disabled because task is already done!')
+                      }
                     }}
-                    disabled={isDone}
+                    disabled={false}
                     className={`flex items-center gap-2 text-base font-medium transition-opacity ${
                       isDone ? 'cursor-default opacity-100' : 'cursor-pointer hover:opacity-80'
                     }`}
