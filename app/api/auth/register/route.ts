@@ -245,30 +245,30 @@ export async function POST(request: Request) {
     // Extract token from action_link and construct our own URL
     let confirmationUrl = linkData?.properties?.action_link || ''
     
-    // ALWAYS reconstruct the URL with our correct redirect_to
-    // Supabase's action_link might contain localhost from Site URL config
+    // ALWAYS reconstruct the URL to point to OUR callback route, not Supabase's verify endpoint
+    // This ensures we have full control over the redirect flow
     if (confirmationUrl && confirmationUrl.includes('token=')) {
       try {
         const url = new URL(confirmationUrl)
         const token = url.searchParams.get('token')
         if (token) {
-          // FORCE our redirect URL - ignore what Supabase provided
-          confirmationUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/verify?token=${encodeURIComponent(token)}&type=signup&redirect_to=${encodeURIComponent(redirectTo)}`
-          console.log('✅ Reconstructed URL with correct redirect:', confirmationUrl.substring(0, 150) + '...')
+          // Point to our callback route, which will handle verification and redirect
+          confirmationUrl = `${baseUrl}/auth/callback?token=${encodeURIComponent(token)}&type=signup&redirect_to=${encodeURIComponent(redirectTo)}`
+          console.log('✅ Reconstructed URL to point to our callback:', confirmationUrl.substring(0, 150) + '...')
         }
       } catch (e) {
         console.warn('⚠️ Could not parse action_link URL:', e)
         // Fallback: try to extract token manually
         const tokenMatch = confirmationUrl.match(/token=([^&]+)/)
         if (tokenMatch && tokenMatch[1]) {
-          confirmationUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/verify?token=${encodeURIComponent(tokenMatch[1])}&type=signup&redirect_to=${encodeURIComponent(redirectTo)}`
+          confirmationUrl = `${baseUrl}/auth/callback?token=${encodeURIComponent(tokenMatch[1])}&type=signup&redirect_to=${encodeURIComponent(redirectTo)}`
           console.log('✅ Reconstructed URL using regex:', confirmationUrl.substring(0, 150) + '...')
         }
       }
     } else {
       // Fallback: create URL manually
       console.warn('⚠️ No valid action_link, using fallback')
-      confirmationUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/verify?token=pending&type=signup&redirect_to=${encodeURIComponent(redirectTo)}`
+      confirmationUrl = `${baseUrl}/auth/callback?token=pending&type=signup&redirect_to=${encodeURIComponent(redirectTo)}`
     }
 
     console.log('📤 Final confirmation URL:', confirmationUrl.substring(0, 200) + '...')

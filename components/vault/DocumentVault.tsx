@@ -6,14 +6,14 @@ import { createClient } from '@/lib/supabase/client'
 interface Document {
   id: string
   file_name: string
-  file_type: string
+  mime_type: string
   file_size: number
   document_type: string | null
   tags: string[] | null
-  confidence_score: number | null
+  confidence: number | null
   processing_status: string
   thumbnail_url: string | null
-  uploaded_at: string
+  created_at: string
   download_url?: string
 }
 
@@ -89,17 +89,54 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
     try {
       setLoading(true)
       const response = await fetch('/api/vault/list')
+
+      // Check if response is OK
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+        console.error('❌ Failed to load documents:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData.error,
+          details: errorData.details,
+          hint: errorData.hint,
+        })
+        
+        // Show user-friendly error message
+        if (response.status === 401) {
+          console.error('Unauthorized - user not authenticated')
+          // Could redirect to login here if needed
+        } else {
+          console.error(`Server error: ${errorData.details || errorData.error || 'Unknown error'}`)
+        }
+        
+        // Set empty array to prevent UI errors
+        setDocuments([])
+        setFilteredDocuments([])
+        return
+      }
+
       const data = await response.json()
 
-      if (data.success) {
+      if (data.success !== false && data.documents) {
         const docs = data.documents || []
         setDocuments(docs)
         setFilteredDocuments(docs)
+        console.log(`✅ Loaded ${docs.length} documents`)
       } else {
-        console.error('Failed to load documents:', data.error)
+        console.error('Failed to load documents:', {
+          success: data.success,
+          error: data.error,
+          details: data.details,
+        })
+        // Set empty array to prevent UI errors
+        setDocuments([])
+        setFilteredDocuments([])
       }
     } catch (error) {
-      console.error('Error loading documents:', error)
+      console.error('❌ Error loading documents:', error)
+      // Set empty array to prevent UI errors
+      setDocuments([])
+      setFilteredDocuments([])
     } finally {
       setLoading(false)
     }

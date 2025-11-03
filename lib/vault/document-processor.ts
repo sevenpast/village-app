@@ -76,15 +76,25 @@ export class DocumentProcessor {
     }
 
     // Step 2: If PDF has no text or is an image, try OCR
+    // Lower threshold: if less than 50 chars, it's likely a scanned image
     if (!extractedText || extractedText.length < 50 || mimeType.startsWith('image/')) {
-      console.log('🔍 PDF has little/no text or is image - performing OCR...')
-      extractedText = await this.performOCR(fileBuffer, mimeType)
+      console.log(`🔍 PDF has little/no text (${extractedText.length} chars) or is image - performing OCR...`)
+      const ocrText = await this.performOCR(fileBuffer, mimeType)
       metadata.isImage = mimeType.startsWith('image/')
       
-      if (extractedText.length > 0) {
-        console.log(`✅ OCR extracted ${extractedText.length} characters`)
+      if (ocrText.length > 0) {
+        // Use OCR text if it's longer than extracted text, or if no text was extracted
+        if (ocrText.length > extractedText.length || extractedText.length === 0) {
+          extractedText = ocrText
+          console.log(`✅ OCR extracted ${extractedText.length} characters (better than PDF text extraction)`)
+        } else {
+          // Combine both if we have some from both sources
+          extractedText = `${extractedText}\n\n${ocrText}`
+          console.log(`✅ OCR added ${ocrText.length} characters to existing ${extractedText.length - ocrText.length} chars`)
+        }
       } else {
-        console.warn('⚠️ OCR returned no text - document may be image-only or require manual review')
+        console.warn('⚠️ OCR returned no text - document may be too blurry, unreadable, or require manual review')
+        // Keep the minimal text we have from PDF extraction (if any)
       }
     }
 
@@ -98,28 +108,38 @@ export class DocumentProcessor {
       requiresReview: true,
     }
 
-    // Step 3: AI Classification (preferred method - uses LLM)
+    // Step 3: AI Classification (ALWAYS try LLM first, then fallback to keywords)
     // Initialize Gemini if not already done
     if (!this.genAI && process.env.GEMINI_API_KEY) {
       await this.initGemini()
     }
 
-    if (this.genAI && extractedText.length > 20) {
+    // Combine filename and extracted text for better context
+    // Filename is often very informative (e.g., "Anmeldung_Kindergarten_und_Schule_neu.pdf")
+    const fullContext = `${fileName}\n\n${extractedText || 'No text extracted from document'}`
+
+    if (this.genAI && fullContext.length > 10) {
       try {
         console.log('🤖 Using AI (Gemini) for document classification...')
-        classification = await this.classifyWithAI(extractedText, fileName)
-        console.log(`✅ AI classification: ${classification.documentType} (confidence: ${classification.confidence})`)
+        console.log(`📝 Context length: ${fullContext.length} chars (filename: ${fileName.substring(0, 50)}...)`)
+        
+        // Always use LLM for classification - it's much better than keywords
+        classification = await this.classifyWithAI(fullContext, fileName)
+        console.log(`✅ AI classification: ${classification.documentType} (confidence: ${classification.confidence}, tags: ${classification.tags.join(', ')})`)
       } catch (error) {
         console.error('⚠️ AI classification failed, using keyword-based fallback:', error)
-        // Fallback to keyword-based classification
-        classification = this.classifyWithKeywords(extractedText)
+        // Fallback to keyword-based classification (combines filename + text)
+        classification = this.classifyWithKeywords(fullContext)
+        console.log(`📋 Keyword fallback: ${classification.documentType} (confidence: ${classification.confidence})`)
       }
     } else {
       if (!this.genAI) {
         console.log('⚠️ Gemini API key not configured, using keyword-based classification')
+      } else if (fullContext.length <= 10) {
+        console.log('⚠️ Not enough text extracted, using keyword-based classification')
       }
       // Fallback to keyword-based classification
-      classification = this.classifyWithKeywords(extractedText)
+      classification = this.classifyWithKeywords(fullContext)
     }
 
     return {
@@ -147,34 +167,48 @@ export class DocumentProcessor {
       let imageBuffer = buffer
       
       if (mimeType === 'application/pdf') {
-        // Convert first page of PDF to image for OCR
+        // Convert PDF pages to image for OCR
+        // For passports/documents, we might need multiple pages, but start with first page
         try {
-          console.log('📄 Converting PDF first page to image for OCR...')
+          console.log('📄 Converting PDF to image for OCR (density: 400 DPI for better quality)...')
           const pdf2pic = await import('pdf2pic')
           const { fromBuffer } = pdf2pic.default
           
           const convert = fromBuffer(buffer, {
-            density: 300,           // Higher density = better OCR quality
+            density: 400,           // Higher density (400 DPI) = much better OCR quality
             saveFilename: 'temp',
-            savePath: '/tmp',        // Temporary path (server-side only)
+            savePath: '/tmp',
             format: 'png',
-            width: 2000,            // Large enough for good OCR
-            height: 2000,
+            width: 3000,            // Higher resolution for better text recognition
+            height: 3000,
+            preserveAspectRatio: true, // Keep aspect ratio
           })
           
-          const result = await convert(1, { responseType: 'buffer' }) // First page
+          // Convert first page (most important for identification documents)
+          const result = await convert(1, { responseType: 'buffer' })
           
           if (result && result.buffer) {
             console.log('✅ PDF converted to image, running OCR...')
-            // Use the converted image buffer for OCR
             imageBuffer = result.buffer
+            
+            // Enhance image quality for better OCR using sharp
+            try {
+              const sharp = await import('sharp')
+              imageBuffer = await sharp.default(imageBuffer)
+                .sharpen()                    // Sharpen edges for better text recognition
+                .normalize()                   // Normalize contrast
+                .greyscale()                   // Convert to greyscale (often better for OCR)
+                .toBuffer()
+              console.log('✅ Image preprocessed for OCR')
+            } catch (enhanceError) {
+              console.warn('⚠️ Image enhancement failed, using original:', enhanceError)
+            }
           } else {
             console.warn('⚠️ PDF conversion failed, skipping OCR for this PDF')
             return ''
           }
         } catch (error) {
           console.error('❌ PDF to image conversion error:', error)
-          // Fallback: try to extract text from PDF directly (might have embedded text)
           return ''
         }
       }
@@ -186,18 +220,31 @@ export class DocumentProcessor {
           .toBuffer()
       }
 
-      // Run Tesseract OCR with Swiss languages (German, French, Italian, English)
+      // Run Tesseract OCR with optimized settings for document recognition
       // Use deu+fra+ita+eng for multi-language support
+      // Add English for passports (often in English)
       const { data } = await Tesseract.default.recognize(imageBuffer, 'deu+fra+ita+eng', {
         logger: (m) => {
           if (m.status === 'recognizing text') {
             console.log(`🔍 OCR Progress: ${Math.round(m.progress * 100)}%`)
           }
         },
+        // OCR Engine Mode 3 = LSTM (better accuracy)
+        oem: 3,
+        // Page Segmentation Mode 6 = Assume uniform block of text (good for documents)
+        psm: 6,
       })
 
       const ocrText = data.text || ''
       console.log(`✅ OCR completed: ${ocrText.length} characters extracted`)
+      
+      // Log first 200 chars for debugging
+      if (ocrText.length > 0) {
+        console.log(`📝 OCR text preview: ${ocrText.substring(0, 200)}...`)
+      } else {
+        console.warn('⚠️ OCR returned empty text - document might be too blurry or unreadable')
+      }
+      
       return ocrText
     } catch (error) {
       console.error('❌ OCR error:', error)
@@ -207,6 +254,8 @@ export class DocumentProcessor {
 
   /**
    * AI Classification using Gemini with enhanced prompt
+   * text: Contains filename + document content
+   * fileName: The original filename for reference
    */
   private async classifyWithAI(text: string, fileName?: string): Promise<{
     documentType: string
@@ -222,31 +271,53 @@ export class DocumentProcessor {
 
     const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
 
-    // Enhanced prompt with Swiss document context
+    // Enhanced prompt with Swiss document context - optimized for better classification
     const prompt = `
-You are an expert document classifier for Swiss administrative documents. Analyze the document content and classify it accurately.
+You are an expert document classifier for Swiss administrative documents. Your task is to accurately classify documents based on their content AND filename.
 
-AVAILABLE DOCUMENT TYPES (choose ONE):
-1. "passport" - Passport or ID card (contains passport number, photo, expiry date, nationality)
-2. "birth_certificate" - Birth certificate (contains date of birth, place of birth, parents' names, Geburtsurkunde)
-3. "marriage_certificate" - Marriage certificate (contains spouses' names, marriage date, place, Heiratsurkunde)
-4. "employment_contract" - Employment/work contract (contains employer name, employee name, salary, contract dates, Arbeitsvertrag)
-5. "rental_contract" - Rental/housing contract (contains landlord, tenant, rent amount, property address, Mietvertrag, bail)
-6. "vaccination_record" - Vaccination/immunization record (contains vaccination dates, vaccine names, Impfpass, vaccination card)
-7. "residence_permit" - Swiss residence permit (contains permit type B/L/C, expiry date, Aufenthaltstitel, permis de séjour)
-8. "bank_documents" - Bank statements, account documents (contains account number, transactions, Kontoauszug, relevé de compte)
-9. "insurance_documents" - Insurance documents (health, liability, etc. - contains Versicherung, Assurance, policy number, insurance company)
-10. "school_documents" - School enrollment, diplomas, certificates (contains school name, student info, Zeugnis, Bildung, education records)
-11. "other" - Anything that doesn't clearly fit the above categories
+FILE NAME: "${fileName || 'unknown'}"
 
-INSTRUCTIONS:
-- Analyze the document content carefully
-- Consider file name as additional context: "${fileName || 'unknown'}"
-- Look for Swiss-specific terms (German: Geburtsurkunde, Mietvertrag, Aufenthaltstitel; French: acte de naissance, bail, permis de séjour; Italian: atto di nascita, contratto di affitto, permesso di soggiorno)
-- Return high confidence (0.8-1.0) only if you're very sure of the classification
-- Extract relevant fields from the document (name, dates, numbers, addresses)
-- Detect the language (de/fr/it/en) based on content
-- Set requires_review to true if confidence < 0.7 or document is unclear
+CRITICAL: The filename is often VERY informative. For example:
+- "Anmeldung_Kindergarten_und_Schule.pdf" → school_documents
+- "Passport_John_Doe.pdf" → passport
+- "Mietvertrag_Zuerich.pdf" → rental_contract
+- "Arbeitsvertrag_Firma.pdf" → employment_contract
+
+AVAILABLE DOCUMENT TYPES (choose ONE - be specific and accurate):
+1. "passport" - Passport or ID card. KEYWORDS: passport number, passport no, passeport numéro, Reisepass, Ausweis, ID card, identity card, identitätskarte, carte d'identité, MRZ (machine readable zone), date of expiry, expiry date, expires, gültig bis, nationality, nationalité, date of birth, geboren, born, place of birth, geburtsort, lieu de naissance, authority, ausstellungsbehörde, autorité. Look for passport-specific fields even if text is from OCR!
+2. "birth_certificate" - Birth certificate (date of birth, place of birth, parents' names, Geburtsurkunde, acte de naissance)
+3. "marriage_certificate" - Marriage certificate (spouses' names, marriage date, Heiratsurkunde, acte de mariage)
+4. "employment_contract" - Employment/work contract (employer, employee, salary, Arbeitsvertrag, contrat de travail)
+5. "rental_contract" - Rental/housing contract (landlord, tenant, rent, address, Mietvertrag, bail, contrat de location)
+6. "vaccination_record" - Vaccination/immunization record (vaccination dates, Impfpass, carnet de vaccination)
+7. "residence_permit" - Swiss residence permit (permit type B/L/C, Aufenthaltstitel, permis de séjour)
+8. "bank_documents" - Bank statements, account documents (account number, transactions, Kontoauszug, relevé de compte)
+9. "insurance_documents" - Insurance documents (Versicherung, Assurance, policy number, health insurance, liability)
+10. "school_documents" - School enrollment, diplomas, certificates (school name, student info, Zeugnis, Bildung, Anmeldung, Kindergarten, Schule, Schulanmeldung, inscription scolaire)
+11. "other" - ONLY if it truly doesn't fit any category above
+
+ANALYSIS INSTRUCTIONS:
+1. FIRST, look at the filename - it often contains the answer (e.g., "Anmeldung" = school_documents, "Mietvertrag" = rental_contract, "Pass" = passport)
+2. THEN, analyze the document content for confirmation
+3. Look for Swiss-specific terms in German/French/Italian/English
+4. For PASSWORDS: Look for passport-specific OCR text patterns even if unclear:
+   - "passport number", "passport no", "passeport numéro", "passport nummer"
+   - "MRZ" or "machine readable zone" (highly specific to passports/IDs!)
+   - "date of expiry", "expiry date", "expires", "gültig bis"
+   - "nationality", "nationalité", "nationalität"
+   - "authority", "ausstellungsbehörde", "autorité"
+   - Even partial matches like "pass" + "number" or "MRZ" = strong passport indicator!
+5. Match keywords: "Anmeldung", "Kindergarten", "Schule", "Schulanmeldung" → school_documents
+6. Match keywords: "Mietvertrag", "bail", "contrat de location" → rental_contract
+7. Match keywords: "Arbeitsvertrag", "contrat de travail" → employment_contract
+8. Return high confidence (0.8-1.0) if filename + content match
+9. Extract relevant fields (name, dates, numbers, addresses, passport numbers)
+10. Detect language (de/fr/it/en)
+11. Set requires_review to true ONLY if confidence < 0.6
+12. IMPORTANT: For scanned documents (OCR text), passport documents often have fragmented text. Look for partial matches like "pass" + "port" or passport field names even if incomplete!
+
+IMPORTANT: Tags must be chosen from this EXACT list only:
+- identity, travel, family, work, contract, housing, health, legal, residence, financial, education, bank, insurance, school, personal, official, other
 
 Return ONLY valid JSON (no markdown, no code blocks, no explanations):
 
@@ -266,9 +337,28 @@ Return ONLY valid JSON (no markdown, no code blocks, no explanations):
   "requires_review": true | false
 }
 
-Document text (first 6000 chars):
-${text.substring(0, 6000)}
-${text.length > 6000 ? '\n... (text truncated for analysis)' : ''}
+Tag mapping guidelines:
+- passport → ["identity", "travel", "official"]
+- birth_certificate → ["identity", "family", "official"]
+- marriage_certificate → ["family", "identity", "official"]
+- employment_contract → ["work", "contract"]
+- rental_contract → ["housing", "contract"]
+- vaccination_record → ["health"]
+- residence_permit → ["legal", "residence", "official"]
+- bank_documents → ["financial", "bank"]
+- insurance_documents → ["health", "insurance", "financial"]
+- school_documents → ["education", "school"]
+- other → ["other"]
+
+DOCUMENT CONTENT (analyze carefully):
+${text.substring(0, 10000)}
+${text.length > 10000 ? '\n... (text truncated - analyze first 10000 chars)' : ''}
+
+Remember: The FIRST LINE contains the filename - analyze it carefully. 
+If you see "Anmeldung" or "Kindergarten" or "Schule" in the filename → school_documents
+If you see "Mietvertrag" or "rental" or "bail" → rental_contract
+If you see "Arbeitsvertrag" or "employment contract" → employment_contract
+The filename is your strongest clue!
 `
 
     try {
@@ -294,10 +384,38 @@ ${text.length > 6000 ? '\n... (text truncated for analysis)' : ''}
           const docType = classification.document_type || 'other'
           const validType = allowedTypes.includes(docType) ? docType : 'other'
           
+          // Validate and filter tags to only include allowed ones
+          const validTags = [
+            'identity', 'travel', 'family', 'work', 'contract', 'housing',
+            'health', 'legal', 'residence', 'financial', 'education',
+            'bank', 'insurance', 'school', 'personal', 'official', 'other'
+          ]
+          const providedTags = Array.isArray(classification.tags) ? classification.tags : []
+          const filteredTags = providedTags.filter(tag => validTags.includes(tag))
+          
+          // If no valid tags provided, use default tags based on document type
+          let finalTags = filteredTags
+          if (finalTags.length === 0) {
+            const defaultTags: Record<string, string[]> = {
+              passport: ['identity', 'travel', 'official'],
+              birth_certificate: ['identity', 'family', 'official'],
+              marriage_certificate: ['family', 'identity', 'official'],
+              employment_contract: ['work', 'contract'],
+              rental_contract: ['housing', 'contract'],
+              vaccination_record: ['health'],
+              residence_permit: ['legal', 'residence', 'official'],
+              bank_documents: ['financial', 'bank'],
+              insurance_documents: ['health', 'insurance', 'financial'],
+              school_documents: ['education', 'school'],
+              other: ['other'],
+            }
+            finalTags = defaultTags[validType] || ['other']
+          }
+
           return {
             documentType: validType,
             confidence: Math.min(1.0, Math.max(0.0, classification.confidence || 0.5)),
-            tags: Array.isArray(classification.tags) ? classification.tags : [],
+            tags: finalTags,
             extractedFields: classification.extracted_fields || {},
             language: ['de', 'fr', 'it', 'en'].includes(classification.language) 
               ? classification.language 
@@ -320,6 +438,7 @@ ${text.length > 6000 ? '\n... (text truncated for analysis)' : ''}
 
   /**
    * Keyword-based classification (fallback, free)
+   * Now analyzes filename + content together for better accuracy
    */
   private classifyWithKeywords(text: string): {
     documentType: string
@@ -329,13 +448,30 @@ ${text.length > 6000 ? '\n... (text truncated for analysis)' : ''}
     language: string
     requiresReview: boolean
   } {
+    // Text already contains filename + content
     const lowerText = text.toLowerCase()
+    
+    // Extract filename if present (first line before newline)
+    const lines = text.split('\n')
+    const fileNamePart = lines[0]?.toLowerCase() || ''
+    const contentPart = lines.slice(1).join('\n').toLowerCase()
 
     // Document type patterns (matching the specified document types)
     const patterns = {
       passport: {
-        keywords: ['passport', 'reisepass', 'passeport', 'passaporto', 'passport number', 'passeport numéro', 'id card', 'identity card', 'ausweis'],
-        confidence: 0.8,
+        keywords: [
+          'passport', 'reisepass', 'passeport', 'passaporto', 
+          'passport number', 'passport no', 'passeport numéro', 'passport nummer',
+          'id card', 'identity card', 'ausweis', 'identitätskarte',
+          'nationality', 'nationalité', 'nationalität', 'nazionalità',
+          'date of birth', 'geboren', 'born', 'naissance',
+          'date of expiry', 'expiry date', 'expires', 'gültig bis',
+          'mrz', 'machine readable zone', // MRZ is specific to passports
+          'authority', 'ausstellungsbehörde',
+          'place of birth', 'geburtsort', 'lieu de naissance',
+          'passport holder', 'inhaber', 'titulaire',
+        ],
+        confidence: 0.85,
         tags: ['identity', 'travel'],
       },
       birth_certificate: {
@@ -379,25 +515,81 @@ ${text.length > 6000 ? '\n... (text truncated for analysis)' : ''}
         tags: ['health', 'insurance', 'financial'],
       },
       school_documents: {
-        keywords: ['school', 'schule', 'école', 'scuola', 'education', 'bildung', 'education', 'school enrollment', 'schulanmeldung', 'inscription scolaire', 'school registration', 'diploma', 'zeugnis'],
-        confidence: 0.75,
+        keywords: [
+          'school', 'schule', 'école', 'scuola', 'education', 'bildung', 
+          'school enrollment', 'schulanmeldung', 'inscription scolaire', 
+          'school registration', 'diploma', 'zeugnis', 'kindergarten', 'kita',
+          'anmeldung', 'registration', 'schüler', 'student', 'noten',
+          'report card', 'bulletin', 'matrikel', 'immatrikulation',
+          'kindergarten anmeldung', 'iscrizione scolastica', 'anmeldung_kindergarten',
+          'schule_neu', 'schulanmeldung', 'inscription'
+        ],
+        confidence: 0.9,
         tags: ['education', 'school'],
+        // Filename keywords get higher priority
+        filenameKeywords: ['anmeldung', 'kindergarten', 'schule', 'schulanmeldung', 'school', 'education', 'kita'],
       },
     }
 
-    // Find best match
+    // Find best match - prioritize filename matches
     let bestMatch = { type: 'other', confidence: 0.3, tags: [] as string[] }
     
     for (const [type, pattern] of Object.entries(patterns)) {
-      const matches = pattern.keywords.filter((keyword) => lowerText.includes(keyword)).length
-      if (matches > 0) {
-        const confidence = Math.min(0.95, pattern.confidence + (matches * 0.05))
+      // Check filename first (higher priority)
+      const filenameMatches = (pattern as any).filenameKeywords 
+        ? (pattern as any).filenameKeywords.filter((keyword: string) => fileNamePart.includes(keyword)).length
+        : 0
+      
+      // Check content
+      const contentMatches = pattern.keywords.filter((keyword) => contentPart.includes(keyword)).length
+      const totalMatches = filenameMatches + contentMatches
+      
+      if (totalMatches > 0 || filenameMatches > 0) {
+        // Filename matches get a big boost
+        const filenameBoost = filenameMatches > 0 ? 0.3 : 0
+        const confidence = Math.min(0.95, pattern.confidence + filenameBoost + (totalMatches * 0.05))
+        
         if (confidence > bestMatch.confidence) {
           bestMatch = {
             type,
             confidence,
             tags: pattern.tags,
           }
+        }
+      }
+    }
+    
+    // Special case: If filename contains clear indicators but wasn't matched
+    // Check for common patterns in filename
+    if (bestMatch.confidence < 0.7) {
+      if (fileNamePart.includes('anmeldung') && (fileNamePart.includes('kindergarten') || fileNamePart.includes('schule') || fileNamePart.includes('school'))) {
+        return {
+          type: 'school_documents',
+          confidence: 0.9,
+          tags: ['education', 'school'],
+          extractedFields: {},
+          language: 'de',
+          requiresReview: false,
+        }
+      }
+      if (fileNamePart.includes('mietvertrag') || fileNamePart.includes('rental') || fileNamePart.includes('bail')) {
+        return {
+          type: 'rental_contract',
+          confidence: 0.9,
+          tags: ['housing', 'contract'],
+          extractedFields: {},
+          language: 'de',
+          requiresReview: false,
+        }
+      }
+      if (fileNamePart.includes('arbeitsvertrag') || fileNamePart.includes('employment') || fileNamePart.includes('contract') && fileNamePart.includes('work')) {
+        return {
+          type: 'employment_contract',
+          confidence: 0.9,
+          tags: ['work', 'contract'],
+          extractedFields: {},
+          language: 'de',
+          requiresReview: false,
         }
       }
     }

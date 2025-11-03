@@ -74,6 +74,7 @@ export async function POST(request: NextRequest) {
     const storagePath = fileName // Just the file path, bucket name is in .from()
 
     // Upload to Supabase Storage
+    console.log('📤 Uploading to storage bucket "documents" with path:', storagePath)
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('documents')
       .upload(storagePath, fileBuffer, {
@@ -82,9 +83,45 @@ export async function POST(request: NextRequest) {
       })
 
     if (uploadError) {
-      console.error('❌ Storage upload error:', uploadError)
+      console.error('❌ Storage upload error:', {
+        message: uploadError.message,
+        statusCode: uploadError.statusCode,
+        error: uploadError,
+      })
+      
+      // Check if bucket exists
+      const { data: buckets, error: bucketError } = await supabase.storage.listBuckets()
+      if (bucketError) {
+        console.error('❌ Error listing buckets:', bucketError)
+      } else {
+        const documentsBucket = buckets?.find(b => b.name === 'documents')
+        if (!documentsBucket) {
+          console.error('❌ Storage bucket "documents" does not exist!')
+          return NextResponse.json(
+            { 
+              error: 'Storage bucket "documents" does not exist',
+              details: 'Please create the "documents" bucket in Supabase Dashboard under Storage',
+              hint: 'The bucket needs to be created manually in Supabase Dashboard'
+            },
+            { status: 500 }
+          )
+        }
+      }
+      
       return NextResponse.json(
-        { error: 'Failed to upload file to storage', details: uploadError.message },
+        { 
+          error: 'Failed to upload file to storage', 
+          details: uploadError.message,
+          statusCode: uploadError.statusCode,
+        },
+        { status: 500 }
+      )
+    }
+
+    if (!uploadData) {
+      console.error('❌ Upload returned no data')
+      return NextResponse.json(
+        { error: 'Upload failed: No data returned from storage' },
         { status: 500 }
       )
     }
@@ -104,32 +141,59 @@ export async function POST(request: NextRequest) {
     const documentId = crypto.randomUUID()
 
     // Create document record with initial classification
+    console.log('💾 Creating document record in database...')
     const { data: document, error: docError } = await supabase
       .from('documents')
       .insert({
         id: documentId,
         user_id: user.id,
         file_name: file.name,
-        file_type: file.type,
+        mime_type: file.type,
         file_size: file.size,
         storage_path: storagePath,
         document_type: detectedType,
         tags: initialTags,
         confidence: confidence,
         processing_status: 'processing',
-      })
+      } as any) // Type assertion to bypass TypeScript type checking
       .select()
       .single()
 
     if (docError) {
-      console.error('❌ Error creating document record:', docError)
+      console.error('❌ Error creating document record:', {
+        message: docError.message,
+        code: docError.code,
+        hint: docError.hint,
+        details: docError.details,
+      })
+      
       // Try to delete uploaded file
-      await supabase.storage.from('documents').remove([storagePath])
+      console.log('🧹 Cleaning up uploaded file...')
+      const { error: cleanupError } = await supabase.storage.from('documents').remove([storagePath])
+      if (cleanupError) {
+        console.warn('⚠️ Failed to cleanup uploaded file:', cleanupError)
+      }
+      
       return NextResponse.json(
-        { error: 'Failed to create document record', details: docError.message },
+        { 
+          error: 'Failed to create document record', 
+          details: docError.message,
+          code: docError.code,
+          hint: docError.hint || 'Check if the documents table exists and RLS policies are correct',
+        },
         { status: 500 }
       )
     }
+
+    if (!document) {
+      console.error('❌ Document insert returned no data')
+      return NextResponse.json(
+        { error: 'Failed to create document record: No data returned' },
+        { status: 500 }
+      )
+    }
+
+    console.log('✅ Document record created:', document.id)
 
     // Process document asynchronously (don't block response)
     // Don't await - let it run in background
@@ -234,13 +298,12 @@ async function processDocumentAsync(
       .update({
         document_type: finalType,
         tags: allTags,
-        confidence_score: finalConfidence,
+        confidence: finalConfidence,
         extracted_text: processed.extractedText.substring(0, 50000), // Limit text size
         extracted_fields: processed.extractedFields,
-        language_detected: processed.language,
+        language: processed.language,
         thumbnail_url: thumbnailUrl,
         processing_status: 'completed',
-        processed_at: new Date().toISOString(),
       })
       .eq('id', documentId)
 

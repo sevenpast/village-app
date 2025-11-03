@@ -7,16 +7,38 @@ import { createClient } from '@/lib/supabase/server'
  */
 export async function GET(request: NextRequest) {
   try {
+    console.log('📋 GET /api/vault/list called')
     const supabase = await createClient()
     
     // Check authentication
+    console.log('🔐 Checking authentication...')
     const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
+    
+    if (authError) {
+      console.error('❌ Auth error:', authError)
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { 
+          success: false,
+          error: 'Unauthorized',
+          details: authError.message 
+        },
         { status: 401 }
       )
     }
+    
+    if (!user) {
+      console.error('❌ No user found')
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'Unauthorized',
+          details: 'User not authenticated' 
+        },
+        { status: 401 }
+      )
+    }
+
+    console.log('✅ User authenticated:', user.id)
 
     // Get query params
     const searchParams = request.nextUrl.searchParams
@@ -31,7 +53,7 @@ export async function GET(request: NextRequest) {
       .select('*')
       .eq('user_id', user.id)
       .is('deleted_at', null)
-      .order('uploaded_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1)
 
     if (documentType) {
@@ -45,38 +67,93 @@ export async function GET(request: NextRequest) {
     const { data: documents, error } = await query
 
     if (error) {
-      console.error('❌ Error listing documents:', error)
+      console.error('❌ Error listing documents:', {
+        message: error.message,
+        code: error.code,
+        hint: error.hint,
+        details: error.details,
+      })
       return NextResponse.json(
-        { error: 'Failed to fetch documents', details: error.message },
+        { 
+          success: false,
+          error: 'Failed to fetch documents', 
+          details: error.message,
+          code: error.code,
+          hint: error.hint || 'Check if the documents table exists and RLS policies are configured',
+        },
         { status: 500 }
       )
     }
 
-    // Get download URLs for each document
-    const documentsWithUrls = await Promise.all(
-      (documents || []).map(async (doc) => {
-        const { data: { publicUrl } } = supabase.storage
-          .from('documents')
-          .getPublicUrl(doc.storage_path)
-
-        return {
-          ...doc,
-          download_url: publicUrl,
-        }
+    // Handle case where documents is null
+    if (documents === null) {
+      console.warn('⚠️ Documents query returned null')
+      return NextResponse.json({
+        success: true,
+        documents: [],
+        count: 0,
       })
-    )
+    }
 
-    return NextResponse.json({
-      success: true,
-      documents: documentsWithUrls,
-      count: documentsWithUrls.length,
-    })
+    console.log(`📄 Found ${documents.length} documents`)
+
+    // Get download URLs for each document
+    try {
+      const documentsWithUrls = await Promise.all(
+        (documents || []).map(async (doc) => {
+          try {
+            const { data: { publicUrl } } = supabase.storage
+              .from('documents')
+              .getPublicUrl(doc.storage_path)
+
+            return {
+              ...doc,
+              download_url: publicUrl,
+            }
+          } catch (urlError) {
+            console.warn(`⚠️ Failed to generate URL for document ${doc.id}:`, urlError)
+            return {
+              ...doc,
+              download_url: null,
+            }
+          }
+        })
+      )
+
+      console.log('✅ Returning documents with URLs')
+      return NextResponse.json({
+        success: true,
+        documents: documentsWithUrls,
+        count: documentsWithUrls.length,
+      })
+    } catch (urlError) {
+      console.error('❌ Error generating download URLs:', urlError)
+      // Return documents without URLs if URL generation fails
+      return NextResponse.json({
+        success: true,
+        documents: documents.map(doc => ({ ...doc, download_url: null })),
+        count: documents.length,
+        warning: 'Could not generate download URLs',
+      })
+    }
   } catch (error) {
     console.error('❌ List documents error:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    const errorStack = error instanceof Error ? error.stack : undefined
+    
+    console.error('Error details:', {
+      message: errorMessage,
+      stack: errorStack,
+      type: error?.constructor?.name,
+    })
+    
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: 'Internal server error',
+        details: errorMessage,
+        // Only include stack in development
+        ...(process.env.NODE_ENV === 'development' && { stack: errorStack }),
       },
       { status: 500 }
     )
