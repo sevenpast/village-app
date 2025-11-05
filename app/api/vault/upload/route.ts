@@ -27,6 +27,13 @@ export async function POST(request: NextRequest) {
     // Get form data
     const formData = await request.formData()
     const file = formData.get('file') as File | null
+        // Get document_id from FormData if provided (ID-based tagging)
+        const documentIdParam = formData.get('document_id') as string | null
+        const documentId = documentIdParam ? parseInt(documentIdParam, 10) : null
+        // Get document_type from FormData if provided (direct type tagging)
+        const providedDocumentType = formData.get('document_type') as string | null
+        // Get fulfilled_requirement from FormData if provided (requirement-based matching)
+        const fulfilledRequirement = formData.get('fulfilled_requirement') as string | null
 
     if (!file) {
       return NextResponse.json(
@@ -128,24 +135,65 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ File uploaded to storage:', uploadData.path)
 
-    // Immediate classification based on filename
-    console.log('🤖 Performing initial document classification...')
-    const detectedType = getDocumentType(file.name)
-    const initialTags = generateSmartTags(file.name)
-    const confidence = getClassificationConfidence(file.name)
+    // Document type priority:
+    // 1. document_id → mapped to document_type via ID mapping (highest priority, confidence = 1.0)
+    // 2. provided document_type (from FormData - high priority, confidence = 1.0)
+    // 3. Auto-detected from filename (confidence = 0.7-0.9)
+    
+    let detectedType: string
+    let initialTags: string[]
+    let confidence: number
 
-    console.log(`📋 Detected type: ${detectedType}, Tags: ${initialTags.join(', ')}, Confidence: ${confidence}`)
+    // First, try ID-based mapping
+    // Note: We don't have taskId in the upload API, so we'll try all tasks
+    // The client-side should ensure the correct taskId is used
+    if (documentId && !isNaN(documentId)) {
+      try {
+        const { getDocumentTypeById } = await import('@/lib/utils/document-id-mapping')
+        // Try without taskId first (will search all tasks)
+        const idMappedType = getDocumentTypeById(documentId)
+        if (idMappedType) {
+          detectedType = idMappedType
+          initialTags = [idMappedType]
+          confidence = 1.0 // Maximum confidence when mapped via ID
+          console.log(`🏷️ Using document_id ${documentId} → mapped type: ${detectedType} (confidence: ${confidence})`)
+        } else {
+          // ID not found in mapping, fall through to other methods
+          throw new Error(`Document ID ${documentId} not found in mapping`)
+        }
+      } catch (error) {
+        console.warn(`⚠️ Could not map document_id ${documentId}, falling back to other methods`)
+        // Fall through to other methods
+      }
+    }
+
+    // If ID mapping didn't work, try provided document_type
+    if (!detectedType && providedDocumentType && providedDocumentType.trim() !== '') {
+      detectedType = providedDocumentType.trim()
+      initialTags = [providedDocumentType.trim()]
+      confidence = 1.0 // Maximum confidence when explicitly provided
+      console.log(`🏷️ Using provided document_type: ${detectedType} (confidence: ${confidence})`)
+    }
+
+    // Finally, auto-detect from filename if no explicit type was provided
+    if (!detectedType) {
+      console.log('🤖 Performing initial document classification...')
+      detectedType = getDocumentType(file.name)
+      initialTags = generateSmartTags(file.name)
+      confidence = getClassificationConfidence(file.name)
+      console.log(`📋 Auto-detected type: ${detectedType}, Tags: ${initialTags.join(', ')}, Confidence: ${confidence}`)
+    }
 
     // Process document (OCR + AI Classification) in background
     // For now, mark as processing
-    const documentId = crypto.randomUUID()
+    const documentUuid = crypto.randomUUID()
 
     // Create document record with initial classification
     console.log('💾 Creating document record in database...')
     const { data: document, error: docError } = await supabase
       .from('documents')
       .insert({
-        id: documentId,
+        id: documentUuid,
         user_id: user.id,
         file_name: file.name,
         mime_type: file.type,
@@ -155,6 +203,7 @@ export async function POST(request: NextRequest) {
         tags: initialTags,
         confidence: confidence,
         processing_status: 'processing',
+        fulfilled_requirement: fulfilledRequirement || null, // Store which requirement this fulfills
       } as any) // Type assertion to bypass TypeScript type checking
       .select()
       .single()
@@ -197,8 +246,19 @@ export async function POST(request: NextRequest) {
 
     // Process document asynchronously (don't block response)
     // Don't await - let it run in background
-    processDocumentAsync(documentId, fileBuffer, file.name, file.type, storagePath, supabase).catch((error) => {
-      console.error(`❌ Background processing failed for ${documentId}:`, error)
+    // Pass document_id (table ID 1-6) and providedDocumentType to preserve explicit tagging
+    processDocumentAsync(
+      documentUuid, 
+      fileBuffer, 
+      file.name, 
+      file.type, 
+      storagePath, 
+      supabase, 
+      documentId || undefined, // Pass document_id (1-6) from table for ID-based mapping
+      providedDocumentType || undefined, // Pass direct type if provided
+      confidence
+    ).catch((error) => {
+      console.error(`❌ Background processing failed for ${documentUuid}:`, error)
       // Update status to failed with error message
       supabase
         .from('documents')
@@ -206,9 +266,9 @@ export async function POST(request: NextRequest) {
           processing_status: 'failed',
           processing_error: error instanceof Error ? error.message : 'Processing failed',
         })
-        .eq('id', documentId)
+        .eq('id', documentUuid)
         .then(() => {
-          console.log(`✅ Document ${documentId} marked as failed`)
+          console.log(`✅ Document ${documentUuid} marked as failed`)
         })
     })
 
@@ -235,6 +295,15 @@ export async function POST(request: NextRequest) {
 
 /**
  * Process document asynchronously
+ * @param documentId - UUID of the document record
+ * @param fileBuffer - File buffer
+ * @param fileName - Original file name
+ * @param mimeType - MIME type
+ * @param storagePath - Storage path in Supabase
+ * @param supabase - Supabase client
+ * @param providedDocumentId - Document ID from table (1-6) for ID-based mapping
+ * @param providedDocumentType - Document type provided via FormData
+ * @param providedConfidence - Confidence score of the provided type
  */
 async function processDocumentAsync(
   documentId: string,
@@ -242,7 +311,10 @@ async function processDocumentAsync(
   fileName: string,
   mimeType: string,
   storagePath: string,
-  supabase: any
+  supabase: any,
+  providedDocumentId?: number,
+  providedDocumentType?: string,
+  providedConfidence: number = 1.0
 ) {
   try {
     console.log(`🔄 Processing document ${documentId}...`)
@@ -277,34 +349,86 @@ async function processDocumentAsync(
       console.warn('⚠️ Thumbnail generation failed:', thumbError)
     }
 
-    // Enhanced classification with extracted text
-    console.log('🔍 Enhancing classification with extracted text...')
-    const enhancedType = getDocumentType(fileName, processed.extractedText)
-    const enhancedTags = generateSmartTags(fileName, processed.extractedText)
-    const enhancedConfidence = getClassificationConfidence(fileName, processed.extractedText)
+    // Priority order for document type:
+    // 1. Provided document_id → mapped to document_type (from upload button) - ALWAYS use if provided
+    // 2. Provided document_type (from FormData) - ALWAYS use if provided
+    // 3. Enhanced classification (with OCR text) - higher confidence
+    // 4. Initial classification (filename only) - lower confidence
+    
+    let finalType: string
+    let finalConfidence: number
+    let allTags: string[]
 
-    // Merge processed tags with enhanced tags
-    const allTags = Array.from(new Set([...processed.tags, ...enhancedTags]))
+    // First priority: ID-based mapping
+    if (providedDocumentId && providedConfidence >= 1.0) {
+      try {
+        const { getDocumentTypeById } = await import('@/lib/utils/document-id-mapping')
+        const idMappedType = getDocumentTypeById(providedDocumentId)
+        if (idMappedType) {
+          finalType = idMappedType
+          finalConfidence = providedConfidence
+          allTags = [idMappedType, ...processed.tags, ...generateSmartTags(fileName, processed.extractedText)]
+          console.log(`🏷️ Using document_id ${providedDocumentId} → mapped type: ${finalType} (confidence: ${finalConfidence})`)
+        } else {
+          throw new Error(`Document ID ${providedDocumentId} not found in mapping`)
+        }
+      } catch (error) {
+        console.warn(`⚠️ Could not map document_id ${providedDocumentId}, trying other methods`)
+        // Fall through to other methods
+      }
+    }
 
-    // Use the higher confidence type
-    const finalType = enhancedConfidence > processed.confidence ? enhancedType : processed.documentType
-    const finalConfidence = Math.max(enhancedConfidence, processed.confidence)
+    // Second priority: Explicit document_type provided
+    if (!finalType && providedDocumentType && providedConfidence >= 1.0) {
+      finalType = providedDocumentType
+      finalConfidence = providedConfidence
+      allTags = [providedDocumentType, ...processed.tags, ...generateSmartTags(fileName, processed.extractedText)]
+      console.log(`🏷️ Using provided document_type: ${finalType} (confidence: ${finalConfidence})`)
+    }
 
-    console.log(`📊 Final classification: ${finalType}, Tags: ${allTags.join(', ')}, Confidence: ${finalConfidence}`)
+    // Third priority: Auto-classify with OCR enhancement
+    if (!finalType) {
+      console.log('🔍 Enhancing classification with extracted text...')
+      const enhancedType = getDocumentType(fileName, processed.extractedText)
+      const enhancedTags = generateSmartTags(fileName, processed.extractedText)
+      const enhancedConfidence = getClassificationConfidence(fileName, processed.extractedText)
+
+      // Merge processed tags with enhanced tags
+      allTags = Array.from(new Set([...processed.tags, ...enhancedTags]))
+
+      // Use the higher confidence type
+      finalType = enhancedConfidence > processed.confidence ? enhancedType : processed.documentType
+      finalConfidence = Math.max(enhancedConfidence, processed.confidence)
+      console.log(`📊 Auto-classified: ${finalType}, Tags: ${allTags.join(', ')}, Confidence: ${finalConfidence}`)
+    }
 
     // Update document record with processing results
+    // Preserve fulfilled_requirement if it was set during upload
+    const { data: existingDoc } = await supabase
+      .from('documents')
+      .select('fulfilled_requirement')
+      .eq('id', documentId)
+      .single()
+    
+    const updateData: any = {
+      document_type: finalType,
+      tags: allTags,
+      confidence: finalConfidence,
+      extracted_text: processed.extractedText.substring(0, 50000), // Limit text size
+      extracted_fields: processed.extractedFields,
+      language: processed.language,
+      thumbnail_url: thumbnailUrl,
+      processing_status: 'completed',
+    }
+    
+    // Preserve fulfilled_requirement if it exists (don't overwrite)
+    if (existingDoc?.fulfilled_requirement) {
+      updateData.fulfilled_requirement = existingDoc.fulfilled_requirement
+    }
+    
     const { error: updateError } = await supabase
       .from('documents')
-      .update({
-        document_type: finalType,
-        tags: allTags,
-        confidence: finalConfidence,
-        extracted_text: processed.extractedText.substring(0, 50000), // Limit text size
-        extracted_fields: processed.extractedFields,
-        language: processed.language,
-        thumbnail_url: thumbnailUrl,
-        processing_status: 'completed',
-      })
+      .update(updateData)
       .eq('id', documentId)
 
     if (updateError) {

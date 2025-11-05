@@ -26,6 +26,14 @@ export interface SendPasswordResetParams {
   resetUrl: string
 }
 
+export interface SendTaskReminderParams {
+  to: string
+  firstName?: string
+  taskTitle: string
+  taskNumber: number
+  taskUrl: string
+}
+
 /**
  * Main email sending function - automatically chooses provider based on environment
  */
@@ -48,6 +56,17 @@ export async function sendPasswordReset(params: SendPasswordResetParams): Promis
     return sendPasswordResetDevelopment(params)
   } else {
     return sendPasswordResetProduction(params)
+  }
+}
+
+export async function sendTaskReminder(params: SendTaskReminderParams): Promise<EmailResult> {
+  const isDevelopment = process.env.NODE_ENV === 'development'
+  const forceProduction = process.env.FORCE_PRODUCTION_EMAILS === 'true'
+
+  if (isDevelopment && !forceProduction) {
+    return sendTaskReminderDevelopment(params)
+  } else {
+    return sendTaskReminderProduction(params)
   }
 }
 
@@ -112,6 +131,38 @@ async function sendPasswordResetDevelopment({
   }
 }
 
+async function sendTaskReminderDevelopment({
+  to,
+  firstName = 'there',
+  taskTitle,
+  taskNumber,
+  taskUrl,
+}: SendTaskReminderParams): Promise<EmailResult> {
+  console.log('\n📧 [DEV] TASK REMINDER (NOT SENT)')
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+  console.log('To:', to)
+  console.log('Subject: Reminder: Task reminder')
+  console.log('Name:', firstName)
+  console.log('Task:', taskNumber, '-', taskTitle)
+  console.log('Task URL:', taskUrl)
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n')
+
+  // Optional: If MailDev is running, send to it
+  if (process.env.MAILDEV_ENABLED === 'true') {
+    return sendEmailViaMailDev({
+      to,
+      subject: `Reminder: ${taskTitle}`,
+      html: generateTaskReminderHTML(firstName, taskTitle, taskNumber, taskUrl),
+    })
+  }
+
+  return {
+    success: true,
+    id: `dev-${Date.now()}`,
+    previewUrl: taskUrl,
+  }
+}
+
 /**
  * PRODUCTION: Send email via Gmail SMTP (fallback to Resend)
  */
@@ -160,6 +211,32 @@ async function sendPasswordResetProduction({
     to,
     firstName,
     resetUrl,
+  })
+}
+
+async function sendTaskReminderProduction({
+  to,
+  firstName = 'there',
+  taskTitle,
+  taskNumber,
+  taskUrl,
+}: SendTaskReminderParams): Promise<EmailResult> {
+  // Use Gmail SMTP only
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    console.error('❌ Gmail SMTP not configured. Cannot send task reminder email.')
+    return {
+      success: false,
+      error: 'Gmail SMTP not configured. Please set GMAIL_USER and GMAIL_APP_PASSWORD environment variables.',
+    }
+  }
+
+  const { sendTaskReminder: sendGmail } = await import('./gmail')
+  return sendGmail({
+    to,
+    firstName,
+    taskTitle,
+    taskNumber,
+    taskUrl,
   })
 }
 
@@ -252,6 +329,58 @@ function generateEmailVerificationHTML(firstName: string, confirmationUrl: strin
           
           <p style="font-size: 14px; color: #666; margin: 30px 0 0 0;">
             This link will expire in 24 hours. If you didn't create an account with Village, you can safely ignore this email.
+          </p>
+        </div>
+        
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center;">
+          <p style="font-size: 12px; color: #999; margin: 0;">
+            Village - Your guide to life in Switzerland<br>
+            <a href="mailto:hello@expatvillage.ch" style="color: #C85C1A;">hello@expatvillage.ch</a>
+          </p>
+        </div>
+      </body>
+    </html>
+  `
+}
+
+function generateTaskReminderHTML(firstName: string, taskTitle: string, taskNumber: number, taskUrl: string): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Task Reminder - ${taskTitle}</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #2D5016; margin: 0;">🔔 Task Reminder</h1>
+        </div>
+        
+        <div style="background-color: #FAF6F0; padding: 30px; border-radius: 8px; border: 1px solid #2D5016;">
+          <p style="font-size: 16px; margin: 0 0 20px 0;">
+            Hi ${firstName},
+          </p>
+          
+          <p style="font-size: 16px; margin: 0 0 20px 0;">
+            You set a reminder for this task:
+          </p>
+          
+          <div style="background-color: #FFFFFF; padding: 20px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #2D5016;">
+            <p style="font-size: 18px; font-weight: bold; margin: 0 0 10px 0; color: #2D5016;">
+              Task ${taskNumber}: ${taskTitle}
+            </p>
+          </div>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${taskUrl}" 
+               style="display: inline-block; background-color: #2D5016; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
+              View Task
+            </a>
+          </div>
+          
+          <p style="font-size: 14px; color: #666; margin: 30px 0 0 0;">
+            Don't forget to complete this important task in your Village journey!
           </p>
         </div>
         

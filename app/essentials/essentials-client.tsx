@@ -6,7 +6,9 @@ import RegistrationFooter from '@/components/forms/RegistrationFooter'
 import GemeindeRegistrationInfobox from './gemeinde-registration-infobox'
 import { getMunicipalityUrl } from '@/lib/municipality-urls'
 import AppHeader from '@/components/AppHeader'
-import { Vault, Archive, Bell } from 'lucide-react'
+import { Vault, Archive } from 'lucide-react'
+import { getDocumentTypeById, getDocumentIdByRequirement } from '@/lib/utils/document-id-mapping'
+import { documentFulfillsRequirement } from '@/lib/utils/requirement-mapping' // Requirement-based matching
 
 interface EssentialsClientProps {
   firstName: string
@@ -39,7 +41,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   const [goal, setGoal] = useState('')
   const [taskStatus, setTaskStatus] = useState<Record<number, boolean>>({}) // Track done status per task
   const [reminderDays, setReminderDays] = useState<Record<number, number>>({}) // Track reminder days per task
-  const [reminderEnabled, setReminderEnabled] = useState<Record<number, boolean>>({}) // Track if reminder is enabled per task
+  const [reminderActive, setReminderActive] = useState<Record<number, boolean>>({}) // Track if reminder is active per task
   const [completedDates, setCompletedDates] = useState<Record<number, string>>({}) // Track completion dates
   const [expandedResources, setExpandedResources] = useState<Record<number, Set<string>>>({})
   const [expandedFAQs, setExpandedFAQs] = useState<Record<number, Set<number>>>({}) // Task ID -> Set of FAQ indices
@@ -52,6 +54,8 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   const [uploadingDocument, setUploadingDocument] = useState<string | null>(null) // Track which document is being uploaded
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploadTargetDoc, setUploadTargetDoc] = useState<string | null>(null) // Which document type to upload
+  const [showAlertsModal, setShowAlertsModal] = useState(false) // Show alerts modal
+  const [allReminders, setAllReminders] = useState<Array<{taskId: number, taskTitle: string, scheduledAt: Date, days: number}>>([]) // All active reminders
   
   // Debounce timer ref for reminder changes
   const reminderDebounceRef = useRef<NodeJS.Timeout | null>(null)
@@ -59,71 +63,34 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   // Get current task's done status
   const isDone = selectedTask ? taskStatus[selectedTask] || false : false
   const currentReminderDays = selectedTask ? reminderDays[selectedTask] || 7 : 7
-  const isReminderEnabled = selectedTask ? reminderEnabled[selectedTask] || false : false
+  const isReminderActive = selectedTask ? reminderActive[selectedTask] || false : false
 
-  // All tasks
-  const allTasks: Task[] = [
+  const tasks: Task[] = [
     { id: 1, title: 'Secure residence permit / visa', number: 1 },
     { id: 2, title: 'Register at the Gemeinde (municipality)', number: 2 },
     { id: 3, title: 'Find a place that fits your needs', number: 3 },
     { id: 4, title: 'Register your kids at school / kindergarten', number: 4 },
     { id: 5, title: 'Receive residence permit card', number: 5 },
   ]
-
-  // State for filtered tasks (reactive to localStorage changes)
-  const [tasks, setTasks] = useState<Task[]>(allTasks) // Initialize with all tasks, then filter in useEffect
-
-  // Update tasks list when localStorage changes
-  useEffect(() => {
-    const updateTasks = () => {
-      // Check if we're in browser environment
-      if (typeof window === 'undefined') return
-      
-      const filtered = allTasks.filter(task => {
-        const isArchived = localStorage.getItem(`task_${task.id}_done`) === 'true'
-        return !isArchived
+  
+  // Count active reminders - use reminderActive state as source of truth, fallback to localStorage
+  const getActiveRemindersCount = () => {
+    // First, try to count from state (most accurate)
+    const stateCount = Object.values(reminderActive).filter(Boolean).length
+    
+    // If state is empty, fallback to localStorage (for initial render)
+    if (stateCount === 0 && typeof window !== 'undefined') {
+      let count = 0
+      tasks.forEach((task) => {
+        const isActive = localStorage.getItem(`task_${task.id}_reminder_active`) === 'true'
+        if (isActive) count++
       })
-      setTasks(filtered)
-      
-      // If current selected task is archived, switch to first available task
-      if (selectedTask) {
-        const isCurrentTaskArchived = localStorage.getItem(`task_${selectedTask}_done`) === 'true'
-        if (isCurrentTaskArchived) {
-          if (filtered.length > 0) {
-            setSelectedTask(filtered[0].id)
-          } else {
-            setSelectedTask(null)
-            setTaskData(null)
-          }
-        }
-      } else if (filtered.length > 0 && !selectedTask) {
-        // If no task selected but tasks are available, select the first one
-        setSelectedTask(filtered[0].id)
-      }
+      return count
     }
-
-    updateTasks()
-
-    // Listen for storage changes
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key && e.key.startsWith('task_') && e.key.endsWith('_done')) {
-        updateTasks()
-      }
-    }
-
-    // Listen for custom event (same-page updates)
-    const handleTaskUpdate = () => {
-      updateTasks()
-    }
-
-    window.addEventListener('storage', handleStorageChange)
-    window.addEventListener('taskCompleted', handleTaskUpdate)
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange)
-      window.removeEventListener('taskCompleted', handleTaskUpdate)
-    }
-  }, [selectedTask])
+    
+    return stateCount
+  }
+  const activeRemindersCount = getActiveRemindersCount()
 
   // Load task data when task is selected
   useEffect(() => {
@@ -138,27 +105,30 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // Only load once on mount
 
-  // Listen for vault document updates (upload/delete from other pages)
+  // Initialize reminderActive state from localStorage on mount
+  // This ensures the badge count is accurate from the start
   useEffect(() => {
-    const handleVaultDocumentUploaded = () => {
-      console.log('📥 Vault document uploaded, reloading documents...')
-      loadVaultDocuments()
-    }
-
-    const handleVaultDocumentDeleted = () => {
-      console.log('🗑️ Vault document deleted, reloading documents...')
-      loadVaultDocuments()
-    }
-
-    window.addEventListener('vaultDocumentUploaded', handleVaultDocumentUploaded)
-    window.addEventListener('vaultDocumentDeleted', handleVaultDocumentDeleted)
-
-    return () => {
-      window.removeEventListener('vaultDocumentUploaded', handleVaultDocumentUploaded)
-      window.removeEventListener('vaultDocumentDeleted', handleVaultDocumentDeleted)
+    if (typeof window !== 'undefined') {
+      const activeStates: Record<number, boolean> = {}
+      tasks.forEach((task) => {
+        activeStates[task.id] = localStorage.getItem(`task_${task.id}_reminder_active`) === 'true'
+      })
+      setReminderActive(activeStates)
+      // Also load reminders for the alert list
+      loadAllReminders()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // loadVaultDocuments is stable, no need to include it
+  }, []) // Only run once on mount
+
+  // Load reminders when modal opens
+  // NOTE: We do NOT include reminderActive in dependencies to avoid infinite loop
+  // The reminderActive state is updated by loadAllReminders, which would cause a loop
+  useEffect(() => {
+    if (showAlertsModal) {
+      loadAllReminders()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showAlertsModal])
 
   const loadTaskData = async (taskId: number) => {
     setLoading(true)
@@ -173,6 +143,13 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       setTaskData(data)
       setGoal(data.goal || '')
       
+      // Load reminder status from localStorage
+      if (typeof window !== 'undefined') {
+        const reminderActiveKey = `task_${taskId}_reminder_active`
+        const isActive = localStorage.getItem(reminderActiveKey) === 'true'
+        setReminderActive(prev => ({ ...prev, [taskId]: isActive }))
+      }
+      
       // Load municipality info for Task 2
       if (taskId === 2 && data.user_data?.municipality_name) {
         loadMunicipalityInfo(data.user_data.municipality_name)
@@ -184,16 +161,12 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       // For now, initialize from localStorage if available
       const savedStatus = localStorage.getItem(`task_${taskId}_done`)
       const savedReminder = localStorage.getItem(`task_${taskId}_reminder`)
-      const savedReminderEnabled = localStorage.getItem(`task_${taskId}_reminder_enabled`)
       const savedCompletedDate = localStorage.getItem(`task_${taskId}_completed_date`)
       if (savedStatus === 'true') {
         setTaskStatus(prev => ({ ...prev, [taskId]: true }))
       }
       if (savedReminder) {
         setReminderDays(prev => ({ ...prev, [taskId]: Number(savedReminder) }))
-      }
-      if (savedReminderEnabled === 'true') {
-        setReminderEnabled(prev => ({ ...prev, [taskId]: true }))
       }
       if (savedCompletedDate) {
         setCompletedDates(prev => ({ ...prev, [taskId]: savedCompletedDate }))
@@ -315,7 +288,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       localStorage.setItem(`task_${selectedTask}_completed_date`, completionDate)
       
       try {
-        // API call to mark task as completed and archived
+        // API call to mark task as completed
         const response = await fetch(`/api/tasks/${selectedTask}/complete`, { 
           method: 'POST',
         })
@@ -324,7 +297,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           throw new Error('Failed to save task completion')
         }
         
-        console.log(`Task ${selectedTask} marked as completed and archived on ${completionDate}`)
+        console.log(`Task ${selectedTask} marked as completed on ${completionDate}`)
         
         // Dispatch custom event to update progress on dashboard and essentials page
         window.dispatchEvent(new Event('taskCompleted'))
@@ -334,21 +307,6 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           key: `task_${selectedTask}_done`,
           newValue: 'true',
         }))
-        
-        // Remove task from view (it will be filtered out since it's now archived)
-        // If this was the selected task, switch to the first available task
-        const remainingTasks = allTasks.filter(task => {
-          const isArchived = task.id === selectedTask || localStorage.getItem(`task_${task.id}_done`) === 'true'
-          return !isArchived
-        })
-        
-        if (remainingTasks.length > 0) {
-          setSelectedTask(remainingTasks[0].id)
-        } else {
-          // All tasks are done, no task selected
-          setSelectedTask(null)
-          setTaskData(null)
-        }
         
         // Cancel reminder when task is done (as per user story)
         // The reminder input will be automatically disabled
@@ -366,91 +324,6 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     }
   }
   
-  const handleReminderToggle = async () => {
-    if (!selectedTask || isDone) return
-    
-    const newEnabledState = !isReminderEnabled
-    
-    // Update local state immediately
-    setReminderEnabled(prev => ({ ...prev, [selectedTask]: newEnabledState }))
-    localStorage.setItem(`task_${selectedTask}_reminder_enabled`, newEnabledState.toString())
-    
-    // Show "saving" status
-    setReminderSaveStatus('saving')
-    
-    try {
-      const response = await fetch(`/api/tasks/${selectedTask}/reminder`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          days: currentReminderDays,
-          enabled: newEnabledState 
-        }),
-      })
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
-        console.warn('⚠️ Reminder API returned non-ok status:', response.status, errorData)
-        setReminderSaveStatus('error')
-        setTimeout(() => setReminderSaveStatus('idle'), 2000)
-        return
-      }
-      
-      const data = await response.json()
-      console.log(`✅ Reminder ${newEnabledState ? 'enabled' : 'disabled'} for task ${selectedTask}`, data)
-      setReminderSaveStatus('saved')
-      setTimeout(() => setReminderSaveStatus('idle'), 2000)
-    } catch (error) {
-      console.warn('⚠️ Error saving reminder to database (using localStorage only):', error)
-      setReminderSaveStatus('error')
-      setTimeout(() => setReminderSaveStatus('idle'), 2000)
-    }
-  }
-
-  const handleDownloadDocuments = async () => {
-    if (!selectedTask) return
-
-    try {
-      const response = await fetch(`/api/tasks/${selectedTask}/download-documents`)
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Failed to download documents' }))
-        console.error('Download error:', errorData)
-        
-        // Show detailed error message with debug info if available
-        let errorMessage = errorData.error || 'Failed to download documents.'
-        
-        if (errorData.debug) {
-          console.log('Debug info:', errorData.debug)
-          errorMessage += `\n\nDebug info:\n- Available document types in vault: ${errorData.debug.availableTypes?.join(', ') || 'none'}\n- Total documents: ${errorData.debug.totalDocuments || 0}\n\nPlease check the browser console for more details.`
-        } else {
-          errorMessage += '\n\nMake sure you have uploaded the required documents to the vault.'
-        }
-        
-        alert(errorMessage)
-        return
-      }
-
-      // Get the ZIP file as blob
-      const blob = await response.blob()
-      
-      // Create download link
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `task-${selectedTask}-documents.zip`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
-    } catch (error) {
-      console.error('Error downloading documents:', error)
-      alert('Failed to download documents. Please try again.')
-    }
-  }
-
   const handleReminderChange = (days: number) => {
     if (!selectedTask || isDone) return
     
@@ -474,10 +347,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ 
-            days,
-            enabled: isReminderEnabled 
-          }),
+          body: JSON.stringify({ days }),
         })
         
         if (!response.ok) {
@@ -503,6 +373,119 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
         // Don't throw - localStorage already saved for offline support
       }
     }, 1000)
+  }
+
+  const handleToggleReminder = async () => {
+    if (!selectedTask || isDone) return
+
+    const newActiveState = !isReminderActive
+    
+    // Update local state immediately (this will trigger badge update)
+    setReminderActive(prev => ({ ...prev, [selectedTask]: newActiveState }))
+    
+    // Save to localStorage
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`task_${selectedTask}_reminder_active`, newActiveState.toString())
+    }
+
+    try {
+      if (newActiveState) {
+        // Activate reminder - save to database
+        const response = await fetch(`/api/tasks/${selectedTask}/reminder`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ days: currentReminderDays }),
+        })
+        
+        if (!response.ok) {
+          console.warn('⚠️ Could not activate reminder in database')
+          // Continue anyway - localStorage already saved
+        } else {
+          console.log(`✅ Reminder activated for task ${selectedTask}`)
+        }
+      } else {
+        // Deactivate reminder - delete from database
+        const response = await fetch(`/api/tasks/${selectedTask}/reminder`, {
+          method: 'DELETE',
+        })
+        
+        if (!response.ok) {
+          console.warn('⚠️ Could not deactivate reminder in database')
+          // Continue anyway - localStorage already saved
+        } else {
+          console.log(`✅ Reminder deactivated for task ${selectedTask}`)
+        }
+      }
+      
+      // CRITICAL: Always reload reminders to sync Alert List with Badge Count
+      // This ensures the Alert Modal shows the updated list immediately
+      loadAllReminders()
+    } catch (error) {
+      console.warn('⚠️ Error toggling reminder:', error)
+      // Continue - localStorage already saved
+      // Still reload to ensure sync
+      loadAllReminders()
+    }
+  }
+
+  const loadAllReminders = async () => {
+    try {
+      // Load reminders from localStorage for all tasks
+      const reminders: Array<{taskId: number, taskTitle: string, scheduledAt: Date, days: number}> = []
+      
+      if (typeof window === 'undefined') {
+        setAllReminders([])
+        return
+      }
+      
+      const activeStates: Record<number, boolean> = {}
+      
+      tasks.forEach((task) => {
+        const isActive = localStorage.getItem(`task_${task.id}_reminder_active`) === 'true'
+        const days = Number(localStorage.getItem(`task_${task.id}_reminder`) || 7)
+        
+        activeStates[task.id] = isActive
+        
+        if (isActive) {
+          // Calculate scheduled date
+          const scheduledAt = new Date()
+          scheduledAt.setDate(scheduledAt.getDate() + days)
+          scheduledAt.setHours(10, 0, 0, 0) // 10:00 AM
+          
+          reminders.push({
+            taskId: task.id,
+            taskTitle: task.title,
+            scheduledAt,
+            days,
+          })
+        }
+      })
+      
+      // Sort by scheduled date (earliest first)
+      reminders.sort((a, b) => a.scheduledAt.getTime() - b.scheduledAt.getTime())
+      
+      // Update states - but only if they actually changed to prevent infinite loops
+      setAllReminders(reminders)
+      
+      // Only update reminderActive if it's actually different (prevents infinite loop)
+      setReminderActive(prev => {
+        const hasChanged = Object.keys(activeStates).some(
+          taskId => prev[Number(taskId)] !== activeStates[Number(taskId)]
+        ) || Object.keys(prev).length !== Object.keys(activeStates).length
+        
+        return hasChanged ? activeStates : prev
+      })
+    } catch (error) {
+      console.error('Error loading reminders:', error)
+      setAllReminders([])
+    }
+  }
+
+  const handleAlertIconClick = () => {
+    loadAllReminders()
+    setShowAlertsModal(true)
   }
   
   // Cleanup debounce timer on unmount
@@ -542,16 +525,23 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     const lower = requirement.toLowerCase()
     
     // Priority-based matching (more specific first)
+    // 1. Passport Photos - MUST be checked BEFORE generic passport (priority order)
+    if (lower.includes('passport photos') || lower.includes('passport photo')) {
+      return ['passport_photos']
+    }
+    
+    // 2. Passport/ID (but NOT photos)
     if (lower.includes('passport/id') || lower.includes('passport or id') || lower.includes('passport/id')) {
       return ['passport']
     }
     if (lower.includes('passport') && (lower.includes('family') || lower.includes('child'))) {
       return ['passport']
     }
-    if (lower.includes('passport')) {
+    // Only match generic 'passport' if it's NOT 'passport photos'
+    if (lower.includes('passport') && !lower.includes('photo')) {
       return ['passport']
     }
-    if (lower.includes('child') && lower.includes('passport')) {
+    if (lower.includes('child') && lower.includes('passport') && !lower.includes('photo')) {
       return ['passport']
     }
     if (lower.includes('id') && !lower.includes('proof') && !lower.includes('insurance')) {
@@ -597,8 +587,8 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       return ['insurance_documents']
     }
     
-    // Passport photos are not stored as documents in vault
-    if (lower.includes('passport photos') || lower.includes('photos')) {
+    // Generic "photos" without passport context are not stored
+    if (lower.includes('photos') && !lower.includes('passport')) {
       return []
     }
     
@@ -606,42 +596,74 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   }
 
   // Check if a document requirement is fulfilled in vault
+  // NEW: Uses requirement-based matching for precision
   const isDocumentUploaded = (requirement: string): boolean => {
+    
+    // Normalize requirement text for comparison
+    const normalizedRequirement = requirement.trim().toLowerCase()
+    
+    // Priority 1: Exact requirement match (most precise)
+    // Check if any document has this exact requirement stored
+    const exactMatch = vaultDocuments.some((doc: any) => {
+      if (!doc.fulfilled_requirement) return false
+      
+      // Use similarity matching for slight text variations
+      return documentFulfillsRequirement(doc, requirement)
+    })
+    
+    if (exactMatch) {
+      return true
+    }
+    
+    // Priority 2: Type-based fallback (for documents uploaded before this system)
+    // Only if no documents have fulfilled_requirement set
+    const hasFulfilledRequirementDocs = vaultDocuments.some((doc: any) => 
+      doc.fulfilled_requirement && doc.fulfilled_requirement.trim() !== ''
+    )
+    
+    // If we have documents with fulfilled_requirement, only use exact matching
+    // (prevents false positives from type-only matching)
+    if (hasFulfilledRequirementDocs) {
+      return false // Don't match by type alone if system has requirement data
+    }
+    
+    // Fallback: Type-based matching for backward compatibility
     const docTypes = mapRequirementToDocType(requirement)
     if (docTypes.length === 0) {
-      // Documents like "passport photos" are not stored in vault
       return false
     }
 
-    // Check if any vault document matches the types
-    // For family book, we need at least one matching document
+    // Special case: Family book (can be multiple documents)
     if (requirement.toLowerCase().includes('family book')) {
-      // Family book typically includes multiple documents - check if we have relevant ones
-      const hasMarriageCert = vaultDocuments.some((doc) => 
+      const hasMarriageCert = vaultDocuments.some((doc: any) => 
         doc.document_type?.toLowerCase() === 'marriage_certificate'
       )
-      const hasBirthCert = vaultDocuments.some((doc) => 
+      const hasBirthCert = vaultDocuments.some((doc: any) => 
         doc.document_type?.toLowerCase() === 'birth_certificate'
       )
-      // Family book is considered fulfilled if we have at least one relevant certificate
       return hasMarriageCert || hasBirthCert
     }
 
-    // For other documents, check exact type match
-    return vaultDocuments.some((doc) => {
+    // Type-based matching (backward compatibility only)
+    return vaultDocuments.some((doc: any) => {
       if (!doc.document_type) return false
       const docType = doc.document_type.toLowerCase()
       return docTypes.includes(docType)
     })
   }
 
-  // Handle document upload
-  const handleDocumentUpload = async (requirement: string, file: File) => {
+  // Handle document upload with ID-based typing
+  const handleDocumentUpload = async (requirement: string, documentId: number, file: File) => {
     if (!selectedTask) return
 
-    // Determine document type from requirement
-    const docTypes = mapRequirementToDocType(requirement)
-    const docType = docTypes[0] || 'other' // Use first match or 'other'
+    // Get document type from global ID mapping (highest priority)
+    let docType = getDocumentTypeById(documentId)
+
+    // Fallback to requirement-based mapping if ID mapping doesn't exist
+    if (!docType) {
+      const docTypes = mapRequirementToDocType(requirement)
+      docType = docTypes[0] || 'other'
+    }
 
     setUploadingDocument(requirement)
     setUploadTargetDoc(requirement)
@@ -649,9 +671,15 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     try {
       const formData = new FormData()
       formData.append('file', file)
-      if (docType !== 'other') {
+      // Send both document_id and document_type for maximum compatibility
+      formData.append('document_id', documentId.toString())
+      if (docType && docType !== 'other') {
         formData.append('document_type', docType)
       }
+      // CRITICAL: Send the exact requirement text for precise matching
+      formData.append('fulfilled_requirement', requirement)
+
+      console.log(`📤 Uploading document with ID ${documentId} → Type: ${docType} → Requirement: "${requirement}"`)
 
       const response = await fetch('/api/vault/upload', {
         method: 'POST',
@@ -679,8 +707,10 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   }
 
   // Trigger file input for upload
-  const triggerFileUpload = (requirement: string) => {
+  const triggerFileUpload = (requirement: string, documentId: number) => {
     setUploadTargetDoc(requirement)
+    // Store documentId temporarily so we can use it in handleFileInputChange
+    ;(fileInputRef.current as any).dataset.documentId = documentId.toString()
     fileInputRef.current?.click()
   }
 
@@ -688,10 +718,23 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file && uploadTargetDoc) {
-      handleDocumentUpload(uploadTargetDoc, file)
+      // Get documentId from the input's data attribute
+      const documentId = fileInputRef.current?.dataset.documentId 
+        ? parseInt(fileInputRef.current.dataset.documentId, 10) 
+        : null
+      
+      if (documentId) {
+        handleDocumentUpload(uploadTargetDoc, documentId, file)
+      } else {
+        // Fallback: try to get ID from mapping (global)
+        const fallbackId = getDocumentIdByRequirement(uploadTargetDoc) || 0
+        handleDocumentUpload(uploadTargetDoc, fallbackId, file)
+      }
+      
       // Reset input
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
+        delete (fileInputRef.current as any).dataset.documentId
       }
     }
   }
@@ -1435,10 +1478,20 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   const renderDocumentsTable = (requirements: string[]) => {
     return (
       <table className="w-full border-collapse">
+        <thead>
+          <tr className="border-b-2" style={{ borderColor: '#D1D5DB' }}>
+            <th className="py-2 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: '#6B7280', width: '24px' }}></th>
+            <th className="py-2 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: '#6B7280' }}>Document</th>
+            <th className="py-2 text-center text-xs font-semibold uppercase tracking-wider" style={{ color: '#6B7280', width: '80px' }}>ID</th>
+            <th className="py-2 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: '#6B7280', width: '120px' }}>Action</th>
+          </tr>
+        </thead>
         <tbody>
-          {requirements.map((requirement, index) => {
+          {requirements.map((requirement) => {
             const isUploaded = isDocumentUploaded(requirement)
             const isUploading = uploadingDocument === requirement
+            // Get global document ID based on document TYPE (consistent across all tasks)
+            const documentId = getDocumentIdByRequirement(requirement)
 
             return (
               <tr key={requirement} className="border-b border-transparent hover:bg-gray-50 transition-colors">
@@ -1447,6 +1500,9 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                 </td>
                 <td className="py-3 align-middle" style={{ paddingRight: '16px' }}>
                   <span className="text-sm" style={{ color: '#374151' }}>{requirement}</span>
+                </td>
+                <td className="py-3 align-middle text-center" style={{ width: '80px', whiteSpace: 'nowrap' }}>
+                  <span className="text-sm font-semibold" style={{ color: '#2D5016' }}>ID {documentId}</span>
                 </td>
                 <td className="py-3 align-middle text-right" style={{ width: '120px', whiteSpace: 'nowrap' }}>
                   {isUploaded ? (
@@ -1470,7 +1526,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                     </div>
                   ) : (
                     <button
-                      onClick={() => triggerFileUpload(requirement)}
+                      onClick={() => triggerFileUpload(requirement, documentId)}
                       disabled={isUploading}
                       className="px-4 py-1.5 text-xs font-semibold rounded-lg transition-all hover:opacity-90 hover:shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
                       style={{
@@ -1541,6 +1597,34 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       )
     }
 
+    // Task 3: Housing documents
+    if (selectedTask === 3) {
+      const documentRequirements = [
+        'Rental contract or lease agreement',
+        'Landlord confirmation letter',
+        'Proof of address (utility bill, bank statement)',
+        'Employment contract (for rental application)',
+        'Reference letters from previous landlords',
+      ]
+
+      return (
+        <div className="space-y-3 text-sm" style={{ color: '#374151' }}>
+          <p className="leading-relaxed">
+            The following documents may be required when searching for housing or signing a rental contract.
+          </p>
+          <p className="leading-relaxed">
+            Upload them to the Document Vault for safe keeping and easy access.
+          </p>
+          <div className="mt-4">
+            {renderDocumentsTable(documentRequirements)}
+          </div>
+          <p className="leading-relaxed mt-4">
+            Use the <strong style={{ color: '#2D5016' }}>Housing</strong> section in the Vault to track apartment viewings and review rental contracts.
+          </p>
+        </div>
+      )
+    }
+
     // Task 4: School documents
     if (selectedTask === 4) {
       const documentRequirements = [
@@ -1601,6 +1685,35 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       )
     }
 
+    // Task 5: Permit Card documents
+    if (selectedTask === 5) {
+      const documentRequirements = [
+        'Passport (valid)',
+        'Residence permit application confirmation',
+        'Proof of health insurance',
+        'Employment contract or proof of financial means',
+        'Proof of address',
+        'Passport photos',
+      ]
+
+      return (
+        <div className="space-y-3 text-sm" style={{ color: '#374151' }}>
+          <p className="leading-relaxed">
+            The following documents are typically required when applying for or collecting your residence permit card.
+          </p>
+          <p className="leading-relaxed">
+            Upload them to the Document Vault for safe keeping and easy access.
+          </p>
+          <div className="mt-4">
+            {renderDocumentsTable(documentRequirements)}
+          </div>
+          <p className="leading-relaxed mt-4">
+            Make sure all documents are valid and up-to-date before your appointment.
+          </p>
+        </div>
+      )
+    }
+
     return null
   }
 
@@ -1628,23 +1741,34 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
               >
                 <Vault className="text-white" size={48} strokeWidth={2.5} />
               </Link>
-              {/* Bell Icon - Red when reminder is enabled for current task */}
+              {/* Bell Icon - Same style as Vault - Click to see all alerts */}
               <button 
-                onClick={() => selectedTask && !isDone && handleReminderToggle()}
-                className="w-20 h-20 rounded-lg flex items-center justify-center cursor-pointer hover:opacity-90 transition-all hover:scale-105 shadow-md"
-                style={{ 
-                  backgroundColor: '#294F3F', 
-                  borderRadius: '10px'
-                }}
-                disabled={!selectedTask || isDone}
-                title={selectedTask && !isDone ? (isReminderEnabled ? 'Disable reminder' : 'Enable reminder') : 'Select a task to set reminder'}
+                onClick={handleAlertIconClick}
+                className="w-20 h-20 rounded-lg flex items-center justify-center cursor-pointer hover:opacity-90 transition-all hover:scale-105 shadow-md relative"
+                style={{ backgroundColor: '#294F3F', borderRadius: '10px' }}
+                title="View all alerts"
               >
-                <Bell 
-                  className={selectedTask && isReminderEnabled && !isDone ? 'text-red-500' : 'text-white'} 
-                  size={48} 
-                  strokeWidth={2.5} 
-                  fill={selectedTask && isReminderEnabled && !isDone ? 'rgb(239, 68, 68)' : 'none'}
-                />
+                <svg
+                  width="48"
+                  height="48"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="white"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+                {activeRemindersCount > 0 && (
+                  <span
+                    className="absolute top-2 right-2 flex items-center justify-center text-white text-xs font-bold rounded-full min-w-[20px] h-5 px-1.5"
+                    style={{ backgroundColor: '#EF4444' }}
+                  >
+                    {activeRemindersCount > 99 ? '99+' : activeRemindersCount}
+                  </span>
+                )}
               </button>
               {/* Archive Icon - Same style as Vault and Bell */}
               <Link
@@ -1783,20 +1907,30 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                   </button>
 
                   {/* Remind me in X days */}
-                  <div className="flex items-center gap-4">
-                    {/* Bell Icon - Red when reminder is enabled */}
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill={isReminderEnabled && !isDone ? '#EF4444' : 'none'}
-                      stroke={isReminderEnabled && !isDone ? '#EF4444' : (isDone ? '#9CA3AF' : '#374151')}
-                      strokeWidth="2"
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => !isDone && handleToggleReminder()}
+                      disabled={isDone}
+                      className="cursor-pointer transition-opacity hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={isReminderActive ? 'Reminder active - click to deactivate' : 'Click to activate reminder'}
                     >
-                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                    </svg>
-                    
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke={isDone ? '#9CA3AF' : (isReminderActive ? '#EF4444' : '#374151')}
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path 
+                          d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" 
+                          fill={isReminderActive && !isDone ? '#EF4444' : 'none'}
+                        />
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                      </svg>
+                    </button>
                     <span className="text-base" style={{ color: isDone ? '#9CA3AF' : '#374151' }}>
                       Remind me in{' '}
                       <input
@@ -1815,57 +1949,6 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                       />{' '}
                       days.
                     </span>
-                    
-                    {!isReminderEnabled && !isDone && (
-                      <button
-                        onClick={handleReminderToggle}
-                        className="px-3 py-1 rounded text-sm font-medium transition-opacity hover:opacity-80 underline"
-                        style={{ color: '#2D5016' }}
-                      >
-                        Activate reminder
-                      </button>
-                    )}
-                    {isReminderEnabled && !isDone && (
-                      <>
-                        <span className="text-sm" style={{ color: '#EF4444' }}>
-                          (active)
-                        </span>
-                        <button
-                          onClick={handleReminderToggle}
-                          className="px-3 py-1 rounded text-sm font-medium transition-opacity hover:opacity-80 underline"
-                          style={{ color: '#EF4444' }}
-                        >
-                          Deactivate reminder
-                        </button>
-                      </>
-                    )}
-                    {reminderSaveStatus === 'saving' && (
-                      <span className="text-sm" style={{ color: '#6B7280' }}>
-                        (saving...)
-                      </span>
-                    )}
-                    {reminderSaveStatus === 'saved' && (
-                      <span className="text-sm flex items-center gap-1" style={{ color: '#22C55E' }}>
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="3"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                        saved
-                      </span>
-                    )}
-                    {reminderSaveStatus === 'error' && (
-                      <span className="text-sm" style={{ color: '#EF4444' }}>
-                        (saved locally)
-                      </span>
-                    )}
                   </div>
                 </div>
 
@@ -1943,7 +2026,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                   )}
 
                   {/* Documents you need - Collapsible Button */}
-                  {selectedTask && taskData && (selectedTask === 1 || selectedTask === 2 || selectedTask === 4) && (
+                  {selectedTask && taskData && (selectedTask === 1 || selectedTask === 2 || selectedTask === 3 || selectedTask === 4 || selectedTask === 5) && (
                     <>
                       <button
                         onClick={() => toggleResource('documents')}
@@ -1979,17 +2062,6 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                               No results found for &quot;{getCurrentTaskSearchQuery()}&quot;
                             </p>
                           )}
-                          {/* Download Documents Button - Below the list */}
-                          <div className="mt-4 pt-4 border-t" style={{ borderColor: '#E5E7EB' }}>
-                            <button
-                              onClick={handleDownloadDocuments}
-                              className="w-full px-4 py-2 rounded-lg font-medium transition-opacity hover:opacity-80"
-                              style={{ backgroundColor: '#2D5016', color: '#FFFFFF' }}
-                              title="Download all required documents as ZIP"
-                            >
-                              Download Documents
-                            </button>
-                          </div>
                         </div>
                       )}
                     </>
@@ -2022,6 +2094,149 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
 
       {/* Footer */}
       <RegistrationFooter />
+
+      {/* Alerts Modal */}
+      {showAlertsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-6 border-b" style={{ borderColor: '#E5E7EB' }}>
+              <h3 className="text-2xl font-bold" style={{ color: '#2D5016' }}>
+                Active Alerts
+              </h3>
+              <button
+                onClick={() => setShowAlertsModal(false)}
+                className="text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-6">
+              {allReminders.length === 0 ? (
+                <div className="text-center py-8">
+                  <svg
+                    width="48"
+                    height="48"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#9CA3AF"
+                    strokeWidth="2"
+                    className="mx-auto mb-4"
+                  >
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                  </svg>
+                  <p className="text-gray-600">No active alerts</p>
+                  <p className="text-sm text-gray-500 mt-2">Click on the bell icon next to a task to activate a reminder</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {allReminders.map((reminder) => {
+                    const now = new Date()
+                    const isPast = reminder.scheduledAt < now
+                    const timeUntil = reminder.scheduledAt.getTime() - now.getTime()
+                    const daysUntil = Math.ceil(timeUntil / (1000 * 60 * 60 * 24))
+                    
+                    return (
+                      <div
+                        key={reminder.taskId}
+                        className="border rounded-lg p-4"
+                        style={{
+                          borderColor: isPast ? '#EF4444' : '#E5E7EB',
+                          backgroundColor: isPast ? '#FEF2F2' : '#FFFFFF',
+                        }}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <h4 className="font-semibold text-lg" style={{ color: '#2D5016' }}>
+                                {reminder.taskTitle}
+                              </h4>
+                              {isPast && (
+                                <span className="px-2 py-1 text-xs font-medium rounded" style={{ backgroundColor: '#EF4444', color: '#FFFFFF' }}>
+                                  Overdue
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-600 mb-1">
+                              Task {tasks.find(t => t.id === reminder.taskId)?.number || reminder.taskId}
+                            </p>
+                            <div className="flex items-center gap-2 text-sm">
+                              <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke={isPast ? '#EF4444' : '#6B7280'}
+                                strokeWidth="2"
+                              >
+                                <circle cx="12" cy="12" r="10" />
+                                <polyline points="12 6 12 12 16 14" />
+                              </svg>
+                              <span style={{ color: isPast ? '#EF4444' : '#6B7280', fontWeight: '500' }}>
+                                {isPast
+                                  ? `Alert was due ${Math.abs(daysUntil)} day${Math.abs(daysUntil) !== 1 ? 's' : ''} ago`
+                                  : daysUntil === 0
+                                  ? 'Alert is due today'
+                                  : daysUntil === 1
+                                  ? 'Alert is due tomorrow'
+                                  : `Alert in ${daysUntil} days`
+                                }
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-2">
+                              Scheduled for: {reminder.scheduledAt.toLocaleDateString('en-GB', { 
+                                weekday: 'long', 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setSelectedTask(reminder.taskId)
+                              setShowAlertsModal(false)
+                            }}
+                            className="ml-4 px-3 py-1.5 text-sm font-medium rounded transition-colors"
+                            style={{ backgroundColor: '#2D5016', color: '#FFFFFF' }}
+                          >
+                            View Task
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t flex justify-end" style={{ borderColor: '#E5E7EB' }}>
+              <button
+                onClick={() => setShowAlertsModal(false)}
+                className="px-4 py-2 rounded-lg font-medium transition-colors"
+                style={{ backgroundColor: '#E5E7EB', color: '#374151' }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

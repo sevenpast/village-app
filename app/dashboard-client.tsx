@@ -120,22 +120,22 @@ export default function DashboardClient({ firstName, avatarUrl }: DashboardClien
 
               {/* CONNECT Card */}
               <div className="relative">
-                <JourneyCard
-                  title="CONNECT"
-                  subtitle="Find your people"
-                  progress={connectProgress}
+              <JourneyCard
+                title="CONNECT"
+                subtitle="Find your people"
+                progress={connectProgress}
                   isCompleted={connectProgress === 100 && totalConnectTasks > 0}
-                />
+              />
               </div>
 
               {/* EXPLORE Card */}
               <div className="relative">
-                <JourneyCard
-                  title="EXPLORE"
-                  subtitle="Nature, culture & other gems"
-                  progress={exploreProgress}
+              <JourneyCard
+                title="EXPLORE"
+                subtitle="Nature, culture & other gems"
+                progress={exploreProgress}
                   isCompleted={exploreProgress === 100 && totalExploreTasks > 0}
-                />
+              />
               </div>
             </div>
           </div>
@@ -178,7 +178,7 @@ export default function DashboardClient({ firstName, avatarUrl }: DashboardClien
                 <svg width="76" height="76" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <circle cx="50" cy="50" r="38" fill="#FFFFFF" opacity="0.3" />
                   <circle cx="50" cy="50" r="30" fill="#FFFFFF" opacity="0.5" />
-                </svg>
+              </svg>
               </div>
             </div>
             <div className="font-bold mb-1" style={{ fontSize: '20px', lineHeight: '100%', color: '#FFFFFF' }}>
@@ -196,7 +196,7 @@ export default function DashboardClient({ firstName, avatarUrl }: DashboardClien
               <div className="w-full h-full rounded-full bg-white/20 flex items-center justify-center">
                 <svg width="76" height="76" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <circle cx="50" cy="50" r="38" fill="#FFFFFF" opacity="0.3" />
-                </svg>
+              </svg>
               </div>
             </div>
             <div className="font-bold mb-1" style={{ fontSize: '20px', lineHeight: '100%', color: '#FFFFFF' }}>
@@ -237,9 +237,9 @@ function JourneyCard({ title, subtitle, progress, isCompleted }: JourneyCardProp
           padding: '24px',
           filter: 'drop-shadow(0px 4px 4px rgba(0, 0, 0, 0.25))'
         }}
-      >
+    >
         {/* Progress Badge (Top Right - small circle) */}
-        <div
+      <div
           className="absolute top-4 right-4 w-11 h-11 rounded-full flex items-center justify-center font-bold"
           style={{ 
             backgroundColor: '#F8EDE0',
@@ -247,18 +247,18 @@ function JourneyCard({ title, subtitle, progress, isCompleted }: JourneyCardProp
             fontSize: '12px',
             lineHeight: '100%'
           }}
-        >
-          {progress}%
-        </div>
+      >
+        {progress}%
+      </div>
 
-        {/* Content */}
+      {/* Content */}
         <div className="pr-16 h-full flex flex-col justify-center">
           <h3 className="font-bold mb-4 text-center" style={{ fontSize: '24px', lineHeight: '100%', color: '#FFFFFF' }}>
             {title}
           </h3>
           <p className="font-bold text-center" style={{ fontSize: '12px', lineHeight: '100%', color: '#FFFFFF' }}>
-            {subtitle}
-          </p>
+          {subtitle}
+        </p>
         </div>
       </div>
     </div>

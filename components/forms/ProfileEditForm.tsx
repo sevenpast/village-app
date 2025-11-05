@@ -81,7 +81,10 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
           fieldSchema = z.string().optional()
         }
 
-        schemaFields[field.key] = fieldSchema
+        // Use fieldKey instead of field.key to avoid undefined keys
+        if (fieldKey) {
+          schemaFields[fieldKey] = fieldSchema
+        }
       })
     })
 
@@ -111,11 +114,11 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
       children: initialData.children || [],
       avatar_url: initialData.avatar_url,
 
-      // Address mappings
-      address_street: initialData.address_street,
-      address_number: initialData.address_number,
-      plz: initialData.plz,
-      city: initialData.city,
+      // Address mappings: database uses address_*, form uses swiss_address_*
+      swiss_address_street: initialData.address_street,
+      swiss_address_number: initialData.address_number,
+      swiss_address_plz: initialData.plz,
+      swiss_address_city: initialData.city,
       municipality_name: initialData.municipality_name || initialData.city,
     }
     
@@ -321,72 +324,88 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
         return
       }
 
-      // Handle picture upload separately if it's a file
+      // Handle avatar upload separately if it's a file
       let avatarUrl = data.avatar_url || initialData?.avatar_url
 
       if (data.avatar && data.avatar instanceof File) {
         try {
-          console.log('📤 Uploading picture file:', {
+          console.log('📤 Uploading avatar file:', {
             name: data.avatar.name,
             size: data.avatar.size,
             type: data.avatar.type,
           })
 
-          // Upload picture to Supabase Storage (same path format as registration)
-          const fileExt = data.avatar.name.split('.').pop() || 'jpg'
-          const fileName = `${user.id}/avatar.${fileExt}`
+          // Upload avatar to Supabase Storage
+          const fileExt = data.avatar.name.split('.').pop()
+          const fileName = `${user.id}-${Date.now()}.${fileExt}`
+          const filePath = `avatars/${fileName}`
 
           const { data: uploadData, error: uploadError } = await supabase.storage
             .from('avatars')
-            .upload(fileName, data.avatar, {
-              contentType: data.avatar.type || `image/${fileExt}`,
-              upsert: true, // Replace existing avatar
+            .upload(filePath, data.avatar, {
+              upsert: true,
+              contentType: data.avatar.type || 'image/jpeg',
             })
 
           if (uploadError) {
-            console.error('⚠️ Picture upload error:', {
+            console.error('⚠️ Avatar upload error:', {
               error: uploadError,
               message: uploadError.message,
               statusCode: uploadError.statusCode,
             })
-            // Don't fail the entire save if picture upload fails
-            alert(`Picture upload failed: ${uploadError.message}. Profile will be saved without new picture.`)
+            // Don't fail the entire save if avatar upload fails
+            // Just use existing avatar_url or skip
+            alert(`Avatar upload failed: ${uploadError.message}. Profile will be saved without new avatar.`)
           } else {
-            console.log('✅ Picture uploaded successfully:', uploadData.path)
-            
-            // Get public URL
+            console.log('✅ Avatar uploaded successfully:', uploadData)
             const { data: { publicUrl } } = supabase.storage
               .from('avatars')
-              .getPublicUrl(fileName)
-            
+              .getPublicUrl(filePath)
             avatarUrl = publicUrl
-            console.log('✅ Picture URL:', avatarUrl)
+            console.log('✅ Avatar URL:', avatarUrl)
           }
         } catch (uploadError: any) {
-          console.error('⚠️ Unexpected error during picture upload:', uploadError)
-          alert(`Picture upload failed: ${uploadError.message || 'Unknown error'}. Profile will be saved without new picture.`)
+          console.error('⚠️ Unexpected error during avatar upload:', uploadError)
+          // Don't fail the entire save if avatar upload fails
+          alert(`Avatar upload failed: ${uploadError.message || 'Unknown error'}. Profile will be saved without new avatar.`)
+        }
+      }
+
+      // Map interests from form format (interest_1, interest_2, etc.) back to array
+      const interestsArray: string[] = []
+      for (let i = 1; i <= 5; i++) {
+        const interestKey = `interest_${i}` as keyof typeof data
+        if (data[interestKey] && typeof data[interestKey] === 'string') {
+          interestsArray.push(data[interestKey] as string)
         }
       }
 
       // Prepare profile data - map form fields to database columns
-      // Based on 001_initial_schema.sql, profiles table has:
-      // user_id, country, language, living_situation, current_situation,
-      // address_street, address_number, plz, city, avatar_url, created_at, updated_at
-      // Only include fields that exist in the profiles table
       const profileData: any = {
         user_id: user.id,
-        // Note: first_name, last_name, gender, date_of_birth, municipality_name may not exist yet
-        // Only include if columns exist in database
-        country: data.country_of_origin || data.country || null,
-        language: data.primary_language || data.language || null,
+        // User metadata fields (stored in auth.users.user_metadata)
+        // These are handled separately below
+        // Profile fields (stored in profiles table)
+        country_of_origin_id: data.country_of_origin ? parseInt(data.country_of_origin, 10) : null,
+        primary_language: data.primary_language || data.language || null,
+        gender: data.gender || null,
+        date_of_birth: data.date_of_birth || null,
+        arrival_date: data.arrival_date || null,
+        living_duration: data.living_duration || null,
+        has_children: data.has_children || false,
         living_situation: data.living_situation || null,
         current_situation: data.current_situation || null,
-        address_street: data.address_street || null,
-        address_number: data.address_number || null,
-        plz: data.plz || null,
-        city: data.city || null,
+        // Map address fields from form format (swiss_address_*) to DB format (address_*)
+        address_street: data.swiss_address_street || data.address_street || null,
+        address_number: data.swiss_address_number || data.address_number || null,
+        plz: data.swiss_address_plz || data.plz || null,
+        city: data.swiss_address_city || data.city || null,
+        municipality_name: data.municipality_name || null,
         avatar_url: avatarUrl || null,
         updated_at: new Date().toISOString(),
+        // Legacy fields (kept for compatibility)
+        country: null,
+        language: null,
       }
 
       // Remove undefined values to avoid issues
@@ -428,7 +447,6 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
       }
 
       console.log('✅ Profile saved successfully:', updatedProfile)
-      console.log('🖼️ Saved picture URL:', avatarUrl)
 
       // Update user metadata (first_name, last_name) if changed
       if (data.first_name || data.last_name) {
@@ -452,7 +470,8 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
       }
 
       // Update interests - MUST complete before navigating
-      if (data.interests && Array.isArray(data.interests)) {
+      // Use the interestsArray we created from interest_1, interest_2, etc.
+      if (interestsArray.length > 0 || Object.keys(data).some(key => key.startsWith('interest_'))) {
         // Delete existing interests
         const { error: deleteError } = await supabase
           .from('user_interests')
@@ -464,9 +483,9 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
           // Continue anyway - we'll try to insert new ones
         }
 
-        // Insert new interests
-        if (data.interests.length > 0) {
-          const interestsData = data.interests.map((interest: string) => ({
+        // Insert new interests using interestsArray
+        if (interestsArray.length > 0) {
+          const interestsData = interestsArray.map((interest: string) => ({
             user_id: user.id,
             interest_key: interest,
           }))
@@ -479,7 +498,7 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
             console.error('⚠️ Error saving interests:', interestsError)
             // Don't fail the whole save if interests fail
           } else {
-            console.log('✅ Interests saved successfully')
+            console.log('✅ Interests saved successfully:', interestsArray)
           }
         } else {
           // No interests to save - that's fine
@@ -524,23 +543,24 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
 
       setSaveSuccess(true)
 
-      // Refresh data via onSave callback to ensure parent component has latest data (especially picture URL)
+      // Refresh data via onSave callback to ensure parent component has latest data
       if (onSave) {
         try {
-          console.log('🔄 Refreshing parent component data to show new picture...')
+          console.log('🔄 Refreshing parent component data...')
           await onSave()
-          console.log('✅ Parent component data refreshed with new picture URL')
+          console.log('✅ Parent component data refreshed')
         } catch (refreshError) {
           console.error('⚠️ Error refreshing parent data:', refreshError)
           // Don't fail the save if refresh fails
         }
       }
 
-      // Reload the page to ensure the picture is displayed everywhere (header, etc.)
-      console.log('🔄 Reloading page to display new picture in header...')
-      setTimeout(() => {
-        window.location.reload()
-      }, 500) // Small delay to ensure save is complete
+      // Wait a moment for everything to complete, then navigate back to dashboard
+      console.log('⏳ Waiting for save to complete, then navigating...')
+      await new Promise(resolve => setTimeout(resolve, 1500)) // 1.5 seconds to ensure everything is saved
+      
+      console.log('🚀 Navigating back to dashboard...')
+      router.push('/')
     } catch (error) {
       console.error('❌ Unexpected error saving profile:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'

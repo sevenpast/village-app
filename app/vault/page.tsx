@@ -77,9 +77,9 @@ export default function VaultPage() {
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#FEFAF6' }}>
       <AppHeader firstName={firstName} avatarUrl={avatarUrl} showHome={true} />
       <main className="flex-1 py-8">
-        {/* Main Tabs - Documents vs Housing */}
-        <div className="max-w-6xl mx-auto mb-6">
-          <div className="flex gap-2 border-b" style={{ borderColor: '#E5E7EB' }}>
+        <div className="container mx-auto px-4">
+          {/* Tabs */}
+          <div className="mb-6 flex gap-2 border-b" style={{ borderColor: '#E5E7EB' }}>
             <button
               onClick={() => setActiveTab('documents')}
               className={`px-6 py-3 font-medium transition-colors ${
@@ -109,11 +109,11 @@ export default function VaultPage() {
               Housing
             </button>
           </div>
-        </div>
 
-        {/* Tab Content */}
-        {activeTab === 'documents' && <DocumentVault userId={user.id} />}
-        {activeTab === 'housing' && <HousingVault userId={user.id} />}
+          {/* Tab Content */}
+          {activeTab === 'documents' && <DocumentVault userId={user.id} />}
+          {activeTab === 'housing' && <HousingVault userId={user.id} />}
+        </div>
       </main>
     </div>
   )

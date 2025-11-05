@@ -84,15 +84,10 @@ export default function SettingsPage() {
       }
 
       console.log('✅ Profile loaded:', profile)
-      console.log('🖼️ Avatar URL from profile:', profile?.avatar_url)
       
-      // Set avatar URL if available (check for non-empty string)
-      if (profile?.avatar_url && typeof profile.avatar_url === 'string' && profile.avatar_url.trim() !== '') {
-        console.log('✅ Setting avatar URL:', profile.avatar_url)
+      // Set avatar URL if available
+      if (profile?.avatar_url) {
         setAvatarUrl(profile.avatar_url)
-      } else {
-        console.log('⚠️ No valid avatar URL found, using fallback')
-        setAvatarUrl(null)
       }
 
       // Load interests
@@ -119,8 +114,12 @@ export default function SettingsPage() {
         // User metadata fields (from auth.users table)
         first_name: userMetadata.first_name || profile?.first_name || null,
         last_name: userMetadata.last_name || profile?.last_name || null,
+        // Profile fields from database
         gender: profile?.gender || null,
         date_of_birth: profile?.date_of_birth || null,
+        arrival_date: profile?.arrival_date || null,
+        living_duration: profile?.living_duration || null,
+        has_children: profile?.has_children || false,
         // Ensure address fields are available
         address_street: profile?.address_street || null,
         address_number: profile?.address_number || null,

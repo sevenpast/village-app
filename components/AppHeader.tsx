@@ -59,24 +59,11 @@ export default function AppHeader({ firstName, avatarUrl, showHome = false }: Ap
         <div className="flex flex-col items-end gap-2">
           {/* Profile Picture */}
           <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white">
-            {avatarUrl && avatarUrl.trim() !== '' ? (
+            {avatarUrl ? (
               <img
                 src={avatarUrl}
                 alt={`${firstName}'s profile`}
                 className="w-full h-full object-cover"
-                onError={(e) => {
-                  // If image fails to load, show fallback with initial
-                  console.warn('Avatar image failed to load:', avatarUrl)
-                  e.currentTarget.style.display = 'none'
-                  const parent = e.currentTarget.parentElement
-                  if (parent) {
-                    const fallback = document.createElement('div')
-                    fallback.className = 'w-full h-full flex items-center justify-center text-white font-bold text-lg'
-                    fallback.style.backgroundColor = '#C85C1A'
-                    fallback.textContent = firstName.charAt(0).toUpperCase()
-                    parent.appendChild(fallback)
-                  }
-                }}
               />
             ) : (
               <div

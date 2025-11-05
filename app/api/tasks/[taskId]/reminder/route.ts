@@ -28,48 +28,8 @@ export async function POST(
     }
 
     const body = await request.json()
-    const { days, enabled } = body
+    const { days } = body
 
-    // If enabled is explicitly false, cancel the reminder
-    if (enabled === false) {
-      try {
-        const { data: existingReminders } = await supabase
-          .from('task_reminders')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('task_id', taskId)
-          .eq('status', 'pending')
-        
-        if (existingReminders && existingReminders.length > 0) {
-          // Cancel all pending reminders for this task
-          for (const reminder of existingReminders) {
-            await supabase
-              .from('task_reminders')
-              .update({
-                status: 'cancelled',
-                cancelled_at: new Date().toISOString(),
-              })
-              .eq('id', reminder.id)
-          }
-        }
-
-        return NextResponse.json({
-          success: true,
-          enabled: false,
-          status: 'cancelled',
-        })
-      } catch (dbError: any) {
-        console.log('Database storage not available for reminder cancellation:', dbError.message)
-        return NextResponse.json({
-          success: true,
-          enabled: false,
-          status: 'cancelled',
-          note: 'Stored in localStorage (database not available)',
-        })
-      }
-    }
-
-    // If enabled is true or undefined, set/update the reminder
     if (!days || typeof days !== 'number' || days < 1 || days > 30) {
       return NextResponse.json(
         { error: 'Invalid reminder days. Must be between 1 and 30.' },
@@ -129,11 +89,12 @@ export async function POST(
         })
       } else {
         // Create new reminder
+        // NOTE: task_id is INTEGER in our schema (1-5 for essentials tasks)
         const { error: insertError } = await supabase
           .from('task_reminders')
           .insert({
             user_id: user.id,
-            task_id: taskId,
+            task_id: taskId, // INTEGER (1-5)
             scheduled_at: scheduledAt.toISOString(),
             status: 'pending',
           })
@@ -180,6 +141,70 @@ export async function POST(
     }
   } catch (error) {
     console.error('Error setting reminder:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
+
+// DELETE /api/tasks/[taskId]/reminder - Deactivate reminder
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ taskId: string }> }
+) {
+  try {
+    const params = await context.params
+    const supabase = await createClient()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    const taskId = parseInt(params.taskId)
+    if (isNaN(taskId)) {
+      return NextResponse.json(
+        { error: 'Invalid task ID' },
+        { status: 400 }
+      )
+    }
+
+    // Delete or mark reminders as cancelled
+    try {
+      // Delete pending reminders for this task
+      const { error: deleteError } = await supabase
+        .from('task_reminders')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('task_id', taskId)
+        .eq('status', 'pending')
+
+      if (deleteError) {
+        console.warn('Could not delete reminder from DB:', deleteError.message)
+        // Return success anyway - localStorage will handle it
+        return NextResponse.json({
+          success: true,
+          message: 'Reminder deactivated (stored in localStorage)',
+        })
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'Reminder deactivated successfully',
+      })
+    } catch (dbError: any) {
+      console.log('Database deletion not available for reminders:', dbError.message)
+      return NextResponse.json({
+        success: true,
+        message: 'Reminder deactivated (stored in localStorage)',
+      })
+    }
+  } catch (error) {
+    console.error('Error deactivating reminder:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

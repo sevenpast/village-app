@@ -175,9 +175,9 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
     // Check each field from all steps
     getAllFields.forEach((fieldName) => {
       const value = watchedValues[fieldName]
-      
-      // Check if field is filled
-      if (value !== undefined && value !== null && value !== '') {
+          
+          // Check if field is filled
+          if (value !== undefined && value !== null && value !== '') {
         // For strings, check if not empty
         if (typeof value === 'string' && value.trim() !== '') {
           filledCount++
@@ -186,20 +186,20 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
         else if (value instanceof Date) {
           filledCount++
         }
-        // For File objects (avatar)
+            // For File objects (avatar)
         else if (value instanceof File) {
-          filledCount++
-        }
+              filledCount++
+            }
         // For arrays (interests)
-        else if (Array.isArray(value) && value.length > 0) {
-          filledCount++
-        }
+            else if (Array.isArray(value) && value.length > 0) {
+              filledCount++
+            } 
         // For objects, check if has keys (but not empty object)
-        else if (typeof value === 'object' && Object.keys(value).length > 0) {
-          filledCount++
-        }
-      }
-    })
+            else if (typeof value === 'object' && Object.keys(value).length > 0) {
+              filledCount++
+            }
+          }
+        })
     
     const percentage = Math.round((filledCount / getAllFields.length) * 100)
     console.log('📊 Progress calculation:', {
@@ -387,18 +387,43 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
     }
 
     // Prepare data for API (merge interests array and remove individual interest_* fields)
+    // CRITICAL FOR DSGVO: Ensure ALL form data is included, nothing is lost
     const apiData: any = {
       ...data,
       interests: interests.length > 0 ? interests : undefined,
       avatar_base64: avatarBase64, // Send as base64 string
-      avatar: undefined, // Remove File object
-      // Remove individual interest fields
+      avatar: undefined, // Remove File object (not serializable)
+      // Remove individual interest fields (they're now in interests array)
       interest_1: undefined,
       interest_2: undefined,
       interest_3: undefined,
       interest_4: undefined,
       interest_5: undefined,
     }
+    
+    // CRITICAL FOR DSGVO: Log all data being sent to ensure nothing is lost
+    console.log('📤 DSGVO Compliance: Sending ALL registration data to API:', {
+      email: apiData.email,
+      first_name: apiData.first_name,
+      last_name: apiData.last_name,
+      gender: apiData.gender,
+      date_of_birth: apiData.date_of_birth,
+      country_of_origin: apiData.country_of_origin,
+      primary_language: apiData.primary_language,
+      arrival_date: apiData.arrival_date,
+      living_duration: apiData.living_duration,
+      has_children: apiData.has_children,
+      municipality_name: apiData.municipality_name,
+      living_situation: apiData.living_situation,
+      current_situation: apiData.current_situation,
+      swiss_address_street: apiData.swiss_address_street,
+      swiss_address_number: apiData.swiss_address_number,
+      swiss_address_plz: apiData.swiss_address_plz,
+      swiss_address_city: apiData.swiss_address_city,
+      interests: apiData.interests,
+      interestsCount: apiData.interests?.length || 0,
+      hasAvatar: !!apiData.avatar_base64,
+    })
 
     try {
       console.log('Calling registration API with data:', {
@@ -501,10 +526,10 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
           message: 'Network error. Please check your internet connection and try again.',
         })
       } else {
-        methods.setError('root', {
-          type: 'manual',
+      methods.setError('root', {
+        type: 'manual',
           message: error instanceof Error ? error.message : 'Registration failed. Please try again.',
-        })
+      })
       }
     }
   }
@@ -661,13 +686,13 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
                   console.log('Current step:', currentStep, 'isLastStep:', isLastStep)
                   
                   try {
-                    // Get all form data
-                    const formData = methods.getValues()
-                    console.log('📊 Form data keys:', Object.keys(formData))
-                    console.log('📧 Email:', formData.email)
-                    console.log('👤 First name:', formData.first_name)
-                    console.log('🔐 Password:', formData.password ? '***' : 'MISSING')
-                    
+                  // Get all form data
+                  const formData = methods.getValues()
+                  console.log('📊 Form data keys:', Object.keys(formData))
+                  console.log('📧 Email:', formData.email)
+                  console.log('👤 First name:', formData.first_name)
+                  console.log('🔐 Password:', formData.password ? '***' : 'MISSING')
+                  
                     // Validate all REQUIRED fields (obligatorisch): first_name, last_name, email, password, password_confirm, date_of_birth
                     const requiredFields = ['first_name', 'last_name', 'email', 'password', 'password_confirm', 'date_of_birth']
                     console.log('🔍 Validating required fields:', requiredFields)
@@ -731,9 +756,9 @@ export default function RegistrationWizard({ onComplete }: RegistrationWizardPro
                     await onSubmit(formData)
                     console.log('✅ onSubmit completed successfully')
                   } catch (error) {
-                    console.error('❌ onSubmit error:', error)
-                    alert('Registration error: ' + (error instanceof Error ? error.message : String(error)))
-                  }
+                      console.error('❌ onSubmit error:', error)
+                      alert('Registration error: ' + (error instanceof Error ? error.message : String(error)))
+                }
                 }}
                 disabled={methods.formState.isSubmitting}
                 className="px-8 py-4 text-white font-bold rounded-lg transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"

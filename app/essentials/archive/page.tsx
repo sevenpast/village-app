@@ -1,23 +1,25 @@
-import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
 import ArchiveClient from './archive-client'
 
 export default async function ArchivePage() {
   const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-  if (authError || !user) {
+  
+  // Check if user is authenticated
+  const { data: { user }, error } = await supabase.auth.getUser()
+  
+  if (error || !user) {
     redirect('/login')
   }
-
-  // Load user profile for header
+  
+  // Load profile data
   const { data: profile } = await supabase
     .from('profiles')
     .select('first_name, avatar_url')
-    .eq('id', user.id)
+    .eq('user_id', user.id)
     .single()
 
-  const firstName = profile?.first_name || user.user_metadata?.first_name || 'User'
+  const firstName = profile?.first_name || user.email?.split('@')[0] || 'User'
   const avatarUrl = profile?.avatar_url || null
 
   return <ArchiveClient firstName={firstName} avatarUrl={avatarUrl} />

@@ -183,11 +183,6 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
         // Reload documents list
         await loadDocuments()
         setUploadProgress(0)
-        
-        // Dispatch custom event to notify other components (e.g., Essentials page)
-        window.dispatchEvent(new CustomEvent('vaultDocumentUploaded', {
-          detail: { documentId: data.document?.id, documentType: data.document?.document_type }
-        }))
       } else {
         const errorMsg = data.details || data.error || 'Unknown error'
         console.error('Upload failed:', errorMsg)
@@ -235,11 +230,6 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
         // Reload documents list
         await loadDocuments()
         console.log('✅ Document deleted successfully')
-        
-        // Dispatch custom event to notify other components (e.g., Essentials page)
-        window.dispatchEvent(new CustomEvent('vaultDocumentDeleted', {
-          detail: { documentId }
-        }))
       } else {
         // Handle error responses (4xx, 5xx status codes or success: false)
         console.error('❌ Delete failed:', data)
@@ -619,11 +609,9 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
                   <span className="text-xs text-gray-500">
                     {formatFileSize(doc.file_size)}
                   </span>
-                  {doc.processing_status !== 'completed' && (
-                    <span className={`text-xs px-2 py-1 rounded ${getStatusColor(doc.processing_status)}`}>
-                      {doc.processing_status}
-                    </span>
-                  )}
+                  <span className={`text-xs px-2 py-1 rounded ${getStatusColor(doc.processing_status)}`}>
+                    {doc.processing_status}
+                  </span>
                 </div>
                 {doc.document_type && (
                   <p className="text-xs text-gray-600 mb-1">
