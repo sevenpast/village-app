@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from '@/lib/link'
 import AppHeader from '@/components/AppHeader'
 import RegistrationFooter from '@/components/forms/RegistrationFooter'
 
@@ -93,10 +94,17 @@ export default function ArchiveClient({ firstName, avatarUrl }: ArchiveClientPro
       <AppHeader firstName={firstName} avatarUrl={avatarUrl} />
       
       <main className="flex-1 container mx-auto px-4 py-8">
-        <div className="mb-8">
+        <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl md:text-4xl font-bold" style={{ color: '#2D5016' }}>
             Archive
           </h1>
+          <Link
+            href="/essentials"
+            className="inline-block px-6 py-2 rounded-lg font-medium transition-opacity hover:opacity-80"
+            style={{ backgroundColor: '#2D5016', color: '#FFFFFF' }}
+          >
+            Back to Essentials
+          </Link>
         </div>
 
         {loading ? (
