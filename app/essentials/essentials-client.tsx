@@ -6,9 +6,10 @@ import RegistrationFooter from '@/components/forms/RegistrationFooter'
 import GemeindeRegistrationInfobox from './gemeinde-registration-infobox'
 import { getMunicipalityUrl } from '@/lib/municipality-urls'
 import AppHeader from '@/components/AppHeader'
-import { Vault, Archive } from 'lucide-react'
+import { Vault, Archive, Mail } from 'lucide-react'
 import { getDocumentTypeById, getDocumentIdByRequirement } from '@/lib/utils/document-id-mapping'
 import { documentFulfillsRequirement } from '@/lib/utils/requirement-mapping' // Requirement-based matching
+import { createEMLWithMultipleDocuments } from '@/lib/utils/eml-generator'
 
 interface EssentialsClientProps {
   firstName: string
@@ -650,6 +651,267 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       const docType = doc.document_type.toLowerCase()
       return docTypes.includes(docType)
     })
+  }
+
+  // Get all required documents for current task (must match renderDocuments requirements exactly)
+  const getTaskDocumentRequirements = (): string[] => {
+    if (!selectedTask) return []
+    
+    // Task 1 & 2: Gemeinde documents (same requirements)
+    if (selectedTask === 1 || selectedTask === 2) {
+      return [
+        'Passport/ID for each family member',
+        'For families: family book, marriage certificate, birth certificates, divorce certificate',
+        'Employment contract (with length and hours)',
+        'Rental contract or landlord confirmation',
+        'Passport photos (sometimes required)',
+        'Proof of health insurance (or provide it within 3 months)',
+      ]
+    }
+    
+    // Task 3: Housing documents
+    if (selectedTask === 3) {
+      return [
+        'Rental contract or lease agreement',
+        'Landlord confirmation letter',
+        'Proof of address (utility bill, bank statement)',
+        'Employment contract (for rental application)',
+        'Reference letters from previous landlords',
+      ]
+    }
+    
+    // Task 4: School documents
+    if (selectedTask === 4) {
+      return [
+        'Child\'s passport or ID',
+        'Birth certificate',
+        'Residence permit (if available)',
+        'Proof of address (rental contract or confirmation)',
+        'Vaccination record',
+      ]
+    }
+    
+    // Task 5: Permit Card documents
+    if (selectedTask === 5) {
+      return [
+        'Passport (valid)',
+        'Residence permit application confirmation',
+        'Proof of health insurance',
+        'Employment contract or proof of financial means',
+        'Proof of address',
+        'Passport photos',
+      ]
+    }
+    
+    return []
+  }
+
+  // Find documents that fulfill a requirement (using same logic as isDocumentUploaded)
+  const findDocumentsForRequirement = (requirement: string): Array<{ id: string; doc: any }> => {
+    const found: Array<{ id: string; doc: any }> = []
+    
+    // Priority 1: Exact requirement match (most precise)
+    vaultDocuments.forEach((doc: any) => {
+      if (!doc.id) return
+      
+      if (doc.fulfilled_requirement && documentFulfillsRequirement(doc, requirement)) {
+        // Check if we already added this document
+        if (!found.find(f => f.id === doc.id)) {
+          found.push({ id: doc.id, doc })
+        }
+      }
+    })
+    
+    // Priority 2: Type-based fallback (for documents uploaded before this system or directly in vault)
+    const hasFulfilledRequirementDocs = vaultDocuments.some((doc: any) => 
+      doc.fulfilled_requirement && doc.fulfilled_requirement.trim() !== ''
+    )
+    
+    // Only use type-based matching if no documents have fulfilled_requirement
+    // OR if we haven't found any documents yet
+    if (found.length === 0 || !hasFulfilledRequirementDocs) {
+      const docTypes = mapRequirementToDocType(requirement)
+      
+      if (docTypes.length > 0) {
+        // Special case: Family book (can be multiple documents)
+        if (requirement.toLowerCase().includes('family book')) {
+          vaultDocuments.forEach((doc: any) => {
+            if (!doc.id) return
+            if (doc.document_type?.toLowerCase() === 'marriage_certificate' || 
+                doc.document_type?.toLowerCase() === 'birth_certificate') {
+              if (!found.find(f => f.id === doc.id)) {
+                found.push({ id: doc.id, doc })
+              }
+            }
+          })
+        } else {
+          // Type-based matching
+          vaultDocuments.forEach((doc: any) => {
+            if (!doc.id || !doc.document_type) return
+            const docType = doc.document_type.toLowerCase()
+            if (docTypes.includes(docType)) {
+              if (!found.find(f => f.id === doc.id)) {
+                found.push({ id: doc.id, doc })
+              }
+            }
+          })
+        }
+      }
+    }
+    
+    return found
+  }
+
+  // Handle downloading all uploaded documents for current task as ZIP
+  const handleDownloadDocumentsAsZip = async () => {
+    if (!selectedTask) {
+      alert('Please select a task first.')
+      return
+    }
+
+    try {
+      const requirements = getTaskDocumentRequirements()
+      
+      // Find all uploaded documents for these requirements (using improved matching)
+      const documentIds: string[] = []
+      const foundDocuments = new Set<string>() // Track to avoid duplicates
+      
+      for (const requirement of requirements) {
+        const matchingDocs = findDocumentsForRequirement(requirement)
+        
+        matchingDocs.forEach(({ id }) => {
+          if (!foundDocuments.has(id)) {
+            documentIds.push(id)
+            foundDocuments.add(id)
+          }
+        })
+      }
+
+      if (documentIds.length === 0) {
+        alert('No documents have been uploaded for this task yet. Please upload documents first.')
+        return
+      }
+
+      // Show loading state
+      const loadingMessage = document.createElement('div')
+      loadingMessage.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #2D5016; color: white; padding: 12px 24px; border-radius: 8px; z-index: 10000; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'
+      loadingMessage.textContent = `📦 Creating ZIP with ${documentIds.length} document(s)...`
+      document.body.appendChild(loadingMessage)
+
+      try {
+        // Call bulk download API
+        const response = await fetch('/api/vault/bulk-download', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ documentIds }),
+        })
+
+        if (!response.ok) {
+          throw new Error('Failed to download documents')
+        }
+
+        // Get the ZIP file as blob
+        const blob = await response.blob()
+        
+        // Create download link
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `documents-task-${selectedTask}-${new Date().toISOString().split('T')[0]}.zip`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        window.URL.revokeObjectURL(url)
+
+        // Update loading message
+        loadingMessage.textContent = `✅ ZIP file downloaded with ${documentIds.length} document(s)!`
+        loadingMessage.style.background = '#22C55E'
+        
+        setTimeout(() => {
+          document.body.removeChild(loadingMessage)
+        }, 4000)
+      } catch (error) {
+        console.error('Error downloading ZIP:', error)
+        document.body.removeChild(loadingMessage)
+        alert('Failed to download documents. Please try again.')
+      }
+    } catch (error) {
+      console.error('Error downloading documents:', error)
+      alert('An error occurred. Please try again.')
+    }
+  }
+
+  // Handle sending all uploaded documents for current task as email bundle
+  const handleSendAllDocumentsAsEmail = async () => {
+    if (!selectedTask) {
+      alert('Please select a task first.')
+      return
+    }
+
+    try {
+      const requirements = getTaskDocumentRequirements()
+      
+      // Find all uploaded documents for these requirements (using improved matching)
+      const documentsToSend: Array<{ url: string; name: string }> = []
+      const foundDocuments = new Set<string>() // Track to avoid duplicates
+      
+      for (const requirement of requirements) {
+        const matchingDocs = findDocumentsForRequirement(requirement)
+        
+        matchingDocs.forEach(({ id, doc }) => {
+          if (!foundDocuments.has(id) && doc.download_url) {
+            documentsToSend.push({
+              url: doc.download_url,
+              name: doc.file_name || `${requirement.replace(/\s+/g, '_')}.pdf`,
+            })
+            foundDocuments.add(id)
+          }
+        })
+      }
+
+      if (documentsToSend.length === 0) {
+        alert('No documents have been uploaded for this task yet. Please upload documents first.')
+        return
+      }
+
+      // Get task title
+      const taskTitle = tasks.find(t => t.id === selectedTask)?.title || `Task ${selectedTask}`
+      
+      // Show loading state
+      const loadingMessage = document.createElement('div')
+      loadingMessage.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #2D5016; color: white; padding: 12px 24px; border-radius: 8px; z-index: 10000; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'
+      loadingMessage.textContent = `📧 Creating email with ${documentsToSend.length} document(s)...`
+      document.body.appendChild(loadingMessage)
+
+      try {
+        // Create EML file with all documents (empty fields - user can fill in mail client)
+        await createEMLWithMultipleDocuments(
+          documentsToSend,
+          {
+            to: '',
+            subject: `${taskTitle}: Required Documents (${documentsToSend.length} files)`,
+            body: `Please find the attached documents for: ${taskTitle}\n\nDocuments included:\n${documentsToSend.map((d, i) => `${i + 1}. ${d.name}`).join('\n')}`,
+          }
+        )
+
+        // Update loading message
+        loadingMessage.textContent = `✅ Email file created with ${documentsToSend.length} document(s)! Check your downloads.`
+        loadingMessage.style.background = '#22C55E'
+        
+        setTimeout(() => {
+          document.body.removeChild(loadingMessage)
+        }, 4000)
+      } catch (error) {
+        console.error('Error creating EML:', error)
+        document.body.removeChild(loadingMessage)
+        alert('Failed to create email file. Please try again.')
+      }
+    } catch (error) {
+      console.error('Error sending documents as email:', error)
+      alert('An error occurred. Please try again.')
+    }
   }
 
   // Handle document upload with ID-based typing
@@ -1478,19 +1740,12 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   const renderDocumentsTable = (requirements: string[]) => {
     return (
       <table className="w-full border-collapse">
-        <thead>
-          <tr className="border-b-2" style={{ borderColor: '#D1D5DB' }}>
-            <th className="py-2 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: '#6B7280', width: '24px' }}></th>
-            <th className="py-2 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: '#6B7280' }}>Document</th>
-            <th className="py-2 text-center text-xs font-semibold uppercase tracking-wider" style={{ color: '#6B7280', width: '80px' }}>ID</th>
-            <th className="py-2 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: '#6B7280', width: '120px' }}>Action</th>
-          </tr>
-        </thead>
         <tbody>
           {requirements.map((requirement) => {
             const isUploaded = isDocumentUploaded(requirement)
             const isUploading = uploadingDocument === requirement
             // Get global document ID based on document TYPE (consistent across all tasks)
+            // ID is used internally for backend processing, but not displayed to user
             const documentId = getDocumentIdByRequirement(requirement)
 
             return (
@@ -1500,9 +1755,6 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                 </td>
                 <td className="py-3 align-middle" style={{ paddingRight: '16px' }}>
                   <span className="text-sm" style={{ color: '#374151' }}>{requirement}</span>
-                </td>
-                <td className="py-3 align-middle text-center" style={{ width: '80px', whiteSpace: 'nowrap' }}>
-                  <span className="text-sm font-semibold" style={{ color: '#2D5016' }}>ID {documentId}</span>
                 </td>
                 <td className="py-3 align-middle text-right" style={{ width: '120px', whiteSpace: 'nowrap' }}>
                   {isUploaded ? (
@@ -1593,6 +1845,26 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
             </a>
             .
           </p>
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: '#E5E7EB' }}>
+            <div className="flex gap-3">
+              <button
+                onClick={handleDownloadDocumentsAsZip}
+                className="flex-1 px-4 py-2 rounded-lg font-medium transition-opacity hover:opacity-80"
+                title="Download all required documents as ZIP"
+                style={{ backgroundColor: '#2D5016', color: '#FFFFFF' }}
+              >
+                Download Documents
+              </button>
+              <button
+                onClick={handleSendAllDocumentsAsEmail}
+                className="flex-1 px-4 py-2 rounded-lg font-medium transition-opacity hover:opacity-80"
+                title="Create email with all documents attached"
+                style={{ backgroundColor: '#F2B75B', color: '#FFFFFF' }}
+              >
+                Create Email
+              </button>
+            </div>
+          </div>
         </div>
       )
     }
@@ -1621,6 +1893,26 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           <p className="leading-relaxed mt-4">
             Use the <strong style={{ color: '#2D5016' }}>Housing</strong> section in the Vault to track apartment viewings and review rental contracts.
           </p>
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: '#E5E7EB' }}>
+            <div className="flex gap-3">
+              <button
+                onClick={handleDownloadDocumentsAsZip}
+                className="flex-1 px-4 py-2 rounded-lg font-medium transition-opacity hover:opacity-80"
+                title="Download all required documents as ZIP"
+                style={{ backgroundColor: '#2D5016', color: '#FFFFFF' }}
+              >
+                Download Documents
+              </button>
+              <button
+                onClick={handleSendAllDocumentsAsEmail}
+                className="flex-1 px-4 py-2 rounded-lg font-medium transition-opacity hover:opacity-80"
+                title="Create email with all documents attached"
+                style={{ backgroundColor: '#F2B75B', color: '#FFFFFF' }}
+              >
+                Create Email
+              </button>
+            </div>
+          </div>
         </div>
       )
     }
@@ -1681,6 +1973,26 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
             </a>{' '}
             tool to automatically complete the school registration form for your municipality.
           </p>
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: '#E5E7EB' }}>
+            <div className="flex gap-3">
+              <button
+                onClick={handleDownloadDocumentsAsZip}
+                className="flex-1 px-4 py-2 rounded-lg font-medium transition-opacity hover:opacity-80"
+                title="Download all required documents as ZIP"
+                style={{ backgroundColor: '#2D5016', color: '#FFFFFF' }}
+              >
+                Download Documents
+              </button>
+              <button
+                onClick={handleSendAllDocumentsAsEmail}
+                className="flex-1 px-4 py-2 rounded-lg font-medium transition-opacity hover:opacity-80"
+                title="Create email with all documents attached"
+                style={{ backgroundColor: '#F2B75B', color: '#FFFFFF' }}
+              >
+                Create Email
+              </button>
+            </div>
+          </div>
         </div>
       )
     }
@@ -1710,6 +2022,26 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           <p className="leading-relaxed mt-4">
             Make sure all documents are valid and up-to-date before your appointment.
           </p>
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: '#E5E7EB' }}>
+            <div className="flex gap-3">
+              <button
+                onClick={handleDownloadDocumentsAsZip}
+                className="flex-1 px-4 py-2 rounded-lg font-medium transition-opacity hover:opacity-80"
+                title="Download all required documents as ZIP"
+                style={{ backgroundColor: '#2D5016', color: '#FFFFFF' }}
+              >
+                Download Documents
+              </button>
+              <button
+                onClick={handleSendAllDocumentsAsEmail}
+                className="flex-1 px-4 py-2 rounded-lg font-medium transition-opacity hover:opacity-80"
+                title="Create email with all documents attached"
+                style={{ backgroundColor: '#F2B75B', color: '#FFFFFF' }}
+              >
+                Create Email
+              </button>
+            </div>
+          </div>
         </div>
       )
     }
@@ -2237,6 +2569,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           </div>
         </div>
       )}
+
     </div>
   )
 }

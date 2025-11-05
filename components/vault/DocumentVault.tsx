@@ -606,13 +606,21 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
                   {doc.file_name}
                 </h3>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs font-medium text-gray-700">
                     {formatFileSize(doc.file_size)}
                   </span>
-                  <span className={`text-xs px-2 py-1 rounded ${getStatusColor(doc.processing_status)}`}>
-                    {doc.processing_status}
-                  </span>
                 </div>
+                {doc.created_at && (
+                  <p className="text-xs text-gray-500 mb-2">
+                    Uploaded: {new Date(doc.created_at).toLocaleDateString('en-GB', { 
+                      day: '2-digit', 
+                      month: 'short', 
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </p>
+                )}
                 {doc.document_type && (
                   <p className="text-xs text-gray-600 mb-1">
                     Type: {getDocumentTypeLabel(doc.document_type)}
