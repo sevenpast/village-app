@@ -46,6 +46,9 @@ export const GLOBAL_DOCUMENT_TYPE_IDS: Record<string, number> = {
   // Passport Photos (separate from passport/ID document)
   'passport_photos': 12,
   
+  // Proof of Address (separate from rental contract)
+  'proof_of_address': 13,
+  
   // Other
   'other': 99,
 }
@@ -67,14 +70,18 @@ const REQUIREMENT_TO_TYPE_MAP: Array<{
   // Must be checked BEFORE generic passport patterns to avoid false matches
   { patterns: ['passport photos', 'passport photo', 'passport photograph'], document_type: 'passport_photos', priority: 90 },
   
+  // Proof of Address - HIGH PRIORITY (gets ID 13)
+  // Must be checked BEFORE rental contract to avoid false matches
+  { patterns: ['proof of address'], document_type: 'proof_of_address', priority: 85 },
+  
   // Passport/ID - checked after residence permit and passport photos
   { patterns: ['passport/id', 'passport or id', 'passport', 'id for', 'child\'s passport', 'valid passport'], document_type: 'passport' },
   
   // Employment Contract
   { patterns: ['employment contract', 'employment', 'proof of financial means', 'contract'], document_type: 'employment_contract' },
   
-  // Rental Contract
-  { patterns: ['rental contract', 'lease agreement', 'landlord confirmation', 'landlord', 'proof of address'], document_type: 'rental_contract' },
+  // Rental Contract (separate from proof of address)
+  { patterns: ['rental contract', 'lease agreement', 'landlord confirmation', 'landlord'], document_type: 'rental_contract' },
   
   // Marriage Certificate / Family Book
   { patterns: ['family book', 'marriage certificate', 'marriage'], document_type: 'marriage_certificate' },
@@ -168,6 +175,7 @@ export function getDocumentRequirementById(id: number): DocumentRequirement | nu
     'residence_permit': 'Residence Permit',
     'employment_contract': 'Employment Contract',
     'rental_contract': 'Rental Contract',
+    'proof_of_address': 'Proof of Address',
     'marriage_certificate': 'Marriage Certificate',
     'birth_certificate': 'Birth Certificate',
     'divorce_certificate': 'Divorce Certificate',

@@ -43,6 +43,7 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
     { value: 'marriage_certificate', label: 'Marriage Certificate' },
     { value: 'employment_contract', label: 'Employment Contract' },
     { value: 'rental_contract', label: 'Rental Contract' },
+    { value: 'proof_of_address', label: 'Proof of Address' },
     { value: 'vaccination_record', label: 'Vaccination Record' },
     { value: 'residence_permit', label: 'Residence Permit' },
     { value: 'bank_documents', label: 'Bank Documents' },

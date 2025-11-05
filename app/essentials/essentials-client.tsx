@@ -632,11 +632,11 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     if (lower.includes('employment contract')) {
       return ['employment_contract']
     }
+    if (lower.includes('proof of address')) {
+      return ['proof_of_address'] // Separate from rental contract
+    }
     if (lower.includes('rental contract') || lower.includes('landlord confirmation')) {
       return ['rental_contract']
-    }
-    if (lower.includes('proof of address')) {
-      return ['rental_contract'] // Usually rental contract
     }
     
     if (lower.includes('vaccination record') || lower.includes('vaccination')) {

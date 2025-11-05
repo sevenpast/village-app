@@ -133,6 +133,7 @@ export function getPotentialRequirements(
     const typeKeywords: Record<string, string[]> = {
       'employment_contract': ['employment contract'],
       'rental_contract': ['rental contract', 'lease agreement', 'landlord'],
+      'proof_of_address': ['proof of address'],
       'birth_certificate': ['birth certificate'],
       'marriage_certificate': ['marriage certificate', 'family book'],
       'divorce_certificate': ['divorce certificate'],
