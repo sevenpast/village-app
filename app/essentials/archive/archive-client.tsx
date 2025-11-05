@@ -52,19 +52,25 @@ export default function ArchiveClient({ firstName, avatarUrl }: ArchiveClientPro
   }
 
   const handleUndone = async (taskId: number) => {
-    try {
-      // Remove from localStorage
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem(`task_${taskId}_done`)
-      }
+    if (!confirm('Are you sure you want to mark this task as undone? It will reappear in your Essentials list.')) {
+      return
+    }
 
-      // Call API to mark as undone
+    try {
+      // Call API to mark as undone first
       const response = await fetch(`/api/tasks/${taskId}/undone`, {
         method: 'POST',
       })
 
       if (!response.ok) {
-        console.error('Failed to mark task as undone')
+        throw new Error('Failed to mark task as undone')
+      }
+
+      // Remove from localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(`task_${taskId}_done`)
+        localStorage.removeItem(`task_${taskId}_completed_date`)
+        localStorage.removeItem(`task_${taskId}_reminder_active`) // Also deactivate reminder
       }
 
       // Reload archived tasks
@@ -73,9 +79,13 @@ export default function ArchiveClient({ firstName, avatarUrl }: ArchiveClientPro
       // Dispatch event to update Essentials page
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('taskUndone', { detail: { taskId } }))
+        window.dispatchEvent(new Event('taskCompleted')) // Also trigger taskCompleted to update progress
       }
+
+      alert('Task marked as undone and moved back to Essentials.')
     } catch (error) {
       console.error('Error marking task as undone:', error)
+      alert('Failed to mark task as undone.')
     }
   }
 

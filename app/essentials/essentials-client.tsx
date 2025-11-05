@@ -106,6 +106,72 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // Only load once on mount
 
+  // Listen for task completion/undone events to update UI immediately
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const updateTaskStatus = () => {
+      // Reload task status from localStorage to update UI
+      const updatedStatus: Record<number, boolean> = {}
+      tasks.forEach((task) => {
+        const isDone = localStorage.getItem(`task_${task.id}_done`) === 'true'
+        updatedStatus[task.id] = isDone
+      })
+      setTaskStatus(updatedStatus)
+      
+      // If currently selected task was completed, select first available task
+      if (selectedTask && updatedStatus[selectedTask]) {
+        const firstAvailableTask = tasks.find(task => !updatedStatus[task.id])
+        if (firstAvailableTask) {
+          setSelectedTask(firstAvailableTask.id)
+        }
+      }
+    }
+
+    const handleTaskCompleted = () => updateTaskStatus()
+    
+    const handleTaskUndone = (event: any) => {
+      const taskId = event.detail?.taskId
+      if (taskId) {
+        localStorage.removeItem(`task_${taskId}_done`)
+        localStorage.removeItem(`task_${taskId}_completed_date`)
+        updateTaskStatus()
+      }
+    }
+
+    window.addEventListener('taskCompleted', handleTaskCompleted)
+    window.addEventListener('taskUndone', handleTaskUndone as any)
+    window.addEventListener('storage', handleTaskCompleted)
+
+    return () => {
+      window.removeEventListener('taskCompleted', handleTaskCompleted)
+      window.removeEventListener('taskUndone', handleTaskUndone as any)
+      window.removeEventListener('storage', handleTaskCompleted)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTask])
+
+  // Load task status from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const initialStatus: Record<number, boolean> = {}
+      tasks.forEach((task) => {
+        const isDone = localStorage.getItem(`task_${task.id}_done`) === 'true'
+        initialStatus[task.id] = isDone
+      })
+      setTaskStatus(initialStatus)
+      
+      // If default selected task is archived, select first available task
+      if (selectedTask === 1 && initialStatus[1]) {
+        const firstAvailableTask = tasks.find(task => !initialStatus[task.id])
+        if (firstAvailableTask) {
+          setSelectedTask(firstAvailableTask.id)
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Only run once on mount
+
   // Initialize reminderActive state from localStorage on mount
   // This ensures the badge count is accurate from the start
   useEffect(() => {
@@ -2115,39 +2181,46 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
             {/* Task List */}
             <div className="flex-1">
               <div className="space-y-4">
-                {tasks.map((task) => {
-                  return (
-                    <div
-                      key={task.id}
-                      onClick={() => handleTaskClick(task.id)}
-                      className={`rounded-lg p-4 cursor-pointer transition-all hover:opacity-90 ${
-                        selectedTask === task.id ? 'ring-2 ring-offset-2' : ''
-                      }`}
-                      style={{
-                        backgroundColor: '#E9A843',
-                        border: selectedTask === task.id ? '2px solid #2D5016' : '1px solid rgba(0, 0, 0, 0.1)',
-                      }}
-                    >
-                      {/* Task Number and Title - Centered */}
-                      <div className="flex items-center justify-center gap-3">
-                        {/* Task Number */}
-                        <div
-                          className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-xl"
-                          style={{ backgroundColor: '#2D5016' }}
-                        >
-                          {task.number}
-                        </div>
+                {tasks
+                  .filter((task) => {
+                    // Filter out archived (completed) tasks - they should only appear in archive
+                    if (typeof window === 'undefined') return true
+                    const isArchived = localStorage.getItem(`task_${task.id}_done`) === 'true'
+                    return !isArchived
+                  })
+                  .map((task) => {
+                    return (
+                      <div
+                        key={task.id}
+                        onClick={() => handleTaskClick(task.id)}
+                        className={`rounded-lg p-4 cursor-pointer transition-all hover:opacity-90 ${
+                          selectedTask === task.id ? 'ring-2 ring-offset-2' : ''
+                        }`}
+                        style={{
+                          backgroundColor: '#E9A843',
+                          border: selectedTask === task.id ? '2px solid #2D5016' : '1px solid rgba(0, 0, 0, 0.1)',
+                        }}
+                      >
+                        {/* Task Number and Title - Centered */}
+                        <div className="flex items-center justify-center gap-3">
+                          {/* Task Number */}
+                          <div
+                            className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-xl"
+                            style={{ backgroundColor: '#2D5016' }}
+                          >
+                            {task.number}
+                          </div>
 
-                        {/* Task Title - Centered */}
-                        <div className="flex-1 text-center">
-                          <h3 className="font-medium text-base" style={{ color: '#374151' }}>
-                            {task.title}
-                          </h3>
+                          {/* Task Title - Centered */}
+                          <div className="flex-1 text-center">
+                            <h3 className="font-medium text-base" style={{ color: '#374151' }}>
+                              {task.title}
+                            </h3>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
               </div>
             </div>
           </div>

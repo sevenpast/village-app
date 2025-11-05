@@ -26,15 +26,34 @@ export async function POST(
       )
     }
 
-    // Update user_task: remove archived_at (mark as active again)
+    // Find task UUID by module and order
+    const { data: tasks } = await supabase
+      .from('tasks')
+      .select('id')
+      .eq('module_id', 'welcome_to_switzerland')
+      .order('created_at', { ascending: true })
+      .limit(5)
+
+    if (!tasks || tasks.length < taskIdNum || !tasks[taskIdNum - 1]) {
+      return NextResponse.json(
+        { error: 'Task not found' },
+        { status: 404 }
+      )
+    }
+
+    const taskUuid = tasks[taskIdNum - 1].id
+
+    // Update user_task: remove archived_at and completed_at (mark as active again)
     const { error: updateError } = await supabase
       .from('user_tasks')
       .update({
         archived_at: null,
+        completed_at: null,
+        status: 'pending',
         updated_at: new Date().toISOString(),
       })
       .eq('user_id', user.id)
-      .eq('task_id', taskIdNum)
+      .eq('task_id', taskUuid)
 
     if (updateError) {
       console.error('Error marking task as undone:', updateError)
