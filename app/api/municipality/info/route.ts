@@ -32,7 +32,21 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient()
 
     // Step 1: Resolve municipality (Kleindöttingen → Böttstein)
-    const resolved = await resolveMunicipality(query, canton || undefined)
+    let resolved
+    try {
+      resolved = await resolveMunicipality(query, canton || undefined)
+    } catch (resolveError) {
+      console.error('Municipality resolution failed:', resolveError)
+      // Return a graceful error response instead of 500
+      return NextResponse.json(
+        {
+          error: `Municipality "${query}" not found in database`,
+          details: resolveError instanceof Error ? resolveError.message : String(resolveError),
+          suggestion: 'Please check the spelling or try using the postal code (PLZ) instead',
+        },
+        { status: 404 }
+      )
+    }
 
     // Step 2: Check cache (4 hour TTL)
     if (!forceRefresh) {

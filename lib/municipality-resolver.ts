@@ -49,7 +49,20 @@ export async function resolveMunicipality(
     }
   }
 
-  // Case 2: Direct municipality name match (case-insensitive)
+  // Case 2: Direct municipality name match (case-insensitive, with Umlaut normalization)
+  // Normalize Umlaute for better matching: ü -> ue, ö -> oe, ä -> ae
+  const normalizeForSearch = (str: string): string => {
+    return str
+      .toLowerCase()
+      .replace(/ü/g, 'ue')
+      .replace(/ö/g, 'oe')
+      .replace(/ä/g, 'ae')
+      .replace(/ß/g, 'ss')
+  }
+  
+  const normalizedInput = normalizeForSearch(userInput.trim())
+  
+  // First try exact match with ilike
   let { data, error } = await supabase
     .from('municipality_master_data')
     .select('*')
@@ -69,6 +82,38 @@ export async function resolveMunicipality(
       website_url: data.official_website || null,
       registration_pages: data.registration_pages || [],
       kanton: data.kanton,
+    }
+  }
+  
+  // Try with normalized search if exact match failed
+  // Get all municipalities and filter client-side for better Umlaut handling
+  const { data: allMunicipalities, error: allError } = await supabase
+    .from('municipality_master_data')
+    .select('*')
+
+  if (allError) {
+    console.error('Error fetching all municipalities:', allError)
+    throw new Error(`Failed to resolve municipality: ${userInput}`)
+  }
+
+  if (allMunicipalities) {
+    // Find match with normalized comparison
+    const match = allMunicipalities.find(muni => {
+      const normalizedMuni = normalizeForSearch(muni.gemeinde_name)
+      return normalizedMuni === normalizedInput || 
+             normalizedMuni.includes(normalizedInput) ||
+             normalizedInput.includes(normalizedMuni)
+    })
+
+    if (match) {
+      return {
+        gemeinde_name: match.gemeinde_name,
+        ortsteil: userInput.trim(),
+        bfs_nummer: match.bfs_nummer,
+        website_url: match.official_website || null,
+        registration_pages: match.registration_pages || [],
+        kanton: match.kanton,
+      }
     }
   }
 
