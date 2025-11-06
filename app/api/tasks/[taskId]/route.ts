@@ -139,8 +139,8 @@ export async function GET(
 
       // Get municipality name from profile
       if (profile) {
-        // Try different possible field names
-        municipalityName = profile.municipality || profile.city || profile.gemeinde || null
+        // Try different possible field names (municipality_name is the correct field name)
+        municipalityName = profile.municipality_name || profile.municipality || profile.city || profile.gemeinde || null
       }
     } catch (error: any) {
       console.error('Error processing profile data:', error?.message || error)

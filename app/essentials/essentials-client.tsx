@@ -221,8 +221,8 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
         setReminderActive(prev => ({ ...prev, [taskId]: isActive }))
       }
       
-      // Load municipality info for Task 2
-      if (taskId === 2 && data.user_data?.municipality_name) {
+      // Load municipality info for Task 1 and Task 2
+      if ((taskId === 1 || taskId === 2) && data.user_data?.municipality_name) {
         loadMunicipalityInfo(data.user_data.municipality_name)
       } else {
         setMunicipalityInfo(null)
@@ -2002,8 +2002,8 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
             )}
             .
           </p>
-          {/* Municipality Opening Hours and Contact Info - Only for Task 2 */}
-          {selectedTask === 2 && taskData.user_data?.municipality_name && (
+          {/* Municipality Opening Hours and Contact Info - For Task 1 and Task 2 */}
+          {(selectedTask === 1 || selectedTask === 2) && taskData.user_data?.municipality_name && (
             <div className="mt-4 p-4 bg-gray-50 rounded-lg border" style={{ borderColor: '#E5E7EB' }}>
               <h4 className="font-semibold text-sm mb-3" style={{ color: '#2D5016' }}>
                 {taskData.user_data.municipality_name} - Office Information
