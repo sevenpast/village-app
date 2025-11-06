@@ -468,8 +468,15 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
         plz: data.swiss_address_plz || data.plz || null,
         city: data.swiss_address_city || data.city || null,
         // municipality_name can come from AddressAutocomplete or be set manually
-        // Priority: data.municipality_name > data.city (fallback to city if municipality not set)
-        municipality_name: data.municipality_name || data.swiss_address_city || data.city || null,
+        // Priority: data.municipality_name > data.swiss_address_city > data.city (fallback to city if municipality not set)
+        // Also check if municipality_name is empty string and convert to null
+        municipality_name: (data.municipality_name && data.municipality_name.trim() !== '') 
+          ? data.municipality_name 
+          : (data.swiss_address_city && data.swiss_address_city.trim() !== '') 
+            ? data.swiss_address_city 
+            : (data.city && data.city.trim() !== '') 
+              ? data.city 
+              : null,
         avatar_url: avatarUrl || null,
         // Note: first_name and last_name are stored in auth.users.user_metadata, NOT in profiles table
         // They are updated separately below
@@ -764,10 +771,9 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
                       
                       // Handle address field (address type or address_autocomplete key)
                       if (field.type === 'address' || fieldKey === 'address_autocomplete' || fieldKey === 'address_street') {
-                        // Use the correct fieldName for AddressAutocomplete
-                        const addressFieldName = fieldKey === 'address_autocomplete' || field.type === 'address' 
-                          ? 'address' 
-                          : fieldKey.replace('_street', '').replace('_autocomplete', '')
+                        // Use 'swiss_address' as fieldName to match form data mapping
+                        // This ensures fields are registered as swiss_address_street, swiss_address_plz, etc.
+                        const addressFieldName = 'swiss_address'
                         
                         return (
                           <div key={fieldKey}>
