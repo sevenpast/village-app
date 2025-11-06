@@ -48,6 +48,8 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   const [expandedFAQs, setExpandedFAQs] = useState<Record<number, Set<number>>>({}) // Task ID -> Set of FAQ indices
   const [municipalityInfo, setMunicipalityInfo] = useState<any>(null)
   const [loadingMunicipality, setLoadingMunicipality] = useState(false)
+  const [schoolInfo, setSchoolInfo] = useState<any>(null)
+  const [loadingSchool, setLoadingSchool] = useState(false)
   const [reminderSaveStatus, setReminderSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [resourceSearchQuery, setResourceSearchQuery] = useState<Record<number, string>>({}) // Task-specific search queries
   const [vaultDocuments, setVaultDocuments] = useState<any[]>([]) // Documents from vault
@@ -224,6 +226,17 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
         loadMunicipalityInfo(data.user_data.municipality_name)
       } else {
         setMunicipalityInfo(null)
+      }
+      
+      // Load school info for Task 4
+      if (taskId === 4 && data.user_data?.municipality_name) {
+        loadSchoolInfo(
+          data.user_data.municipality_name,
+          data.user_data?.address_street || '',
+          data.user_data?.plz || ''
+        )
+      } else {
+        setSchoolInfo(null)
       }
       
       // TODO: Load task status and reminder from API
@@ -947,10 +960,12 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       // Get task title
       const taskTitle = tasks.find(t => t.id === selectedTask)?.title || `Task ${selectedTask}`
       
-      // Get municipality email for Task 2 (Register at Gemeinde)
+      // Get recipient email based on task
       let recipientEmail = ''
       if (selectedTask === 2 && municipalityInfo?.email) {
         recipientEmail = municipalityInfo.email
+      } else if (selectedTask === 4 && schoolInfo?.authority?.email) {
+        recipientEmail = schoolInfo.authority.email
       }
       
       // Show loading state
@@ -1103,6 +1118,43 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       setMunicipalityInfo(null)
     } finally {
       setLoadingMunicipality(false)
+    }
+  }
+
+  const loadSchoolInfo = async (municipalityName: string, address: string, plz: string) => {
+    if (!municipalityName) {
+      console.log('No municipality name provided for school info')
+      return
+    }
+    
+    console.log('Loading school info for:', municipalityName, address, plz)
+    setLoadingSchool(true)
+    try {
+      // Get child age from current taskData (if available) or default to 5
+      const childAge = taskData?.user_data?.children_ages?.[0] || 5
+      
+      const params = new URLSearchParams({
+        municipality: municipalityName,
+        address: address || '',
+        plz: plz || '',
+        childAge: childAge.toString(),
+      })
+      
+      const response = await fetch(`/api/school/registration-info?${params}`)
+      if (response.ok) {
+        const info = await response.json()
+        console.log('School info loaded:', info)
+        setSchoolInfo(info)
+      } else {
+        const errorData = await response.json().catch(() => ({}))
+        console.warn('School info not available:', errorData)
+        setSchoolInfo(null)
+      }
+    } catch (error) {
+      console.error('Error loading school info:', error)
+      setSchoolInfo(null)
+    } finally {
+      setLoadingSchool(false)
     }
   }
 
@@ -2140,10 +2192,10 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
             , visit the official{' '}
             <a
               href={
-                taskData.user_data?.municipality_name
-                  ? municipalityInfo?.schulverwaltung?.website || 
-                    `${getMunicipalityUrl(taskData.user_data.municipality_name, false)}/schulen`
-                  : '#'
+                schoolInfo?.authority?.website_url ||
+                (taskData.user_data?.municipality_name
+                  ? `${getMunicipalityUrl(taskData.user_data.municipality_name, false)}/schulen`
+                  : '#')
               }
               target="_blank"
               rel="noopener noreferrer"
@@ -2153,6 +2205,155 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
             </a>
             {' '}of the school administration.
           </p>
+          
+          {/* School Authority Information */}
+          {taskData.user_data?.municipality_name && (
+            <div className="mt-4 p-4 bg-gray-50 rounded-lg border" style={{ borderColor: '#E5E7EB' }}>
+              <h4 className="font-semibold text-sm mb-3" style={{ color: '#2D5016' }}>
+                {schoolInfo?.authority?.authority_name || `${taskData.user_data.municipality_name} - School Authority`}
+              </h4>
+              
+              {loadingSchool ? (
+                <p className="text-xs text-gray-500">Loading school registration information...</p>
+              ) : schoolInfo ? (
+                <>
+                  {/* Authority Type Badge */}
+                  {schoolInfo.authority?.authority_type === 'schulkreis' && schoolInfo.authority?.school_district && (
+                    <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+                      <p className="text-blue-900">
+                        <strong>School District:</strong> {schoolInfo.authority.school_district.name}
+                      </p>
+                      <p className="text-blue-700 mt-1">
+                        Based on your address in postal code {taskData.user_data?.plz || 'your area'}
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Contact Info */}
+                  {(schoolInfo.authority?.phone || schoolInfo.authority?.email || schoolInfo.authority?.address) && (
+                    <div className="mb-3 text-xs">
+                      {schoolInfo.authority.address && (
+                        <p className="text-gray-700 mb-1">
+                          <strong>Address:</strong> {schoolInfo.authority.address}
+                        </p>
+                      )}
+                      {schoolInfo.authority.phone && (
+                        <p className="text-gray-700 mb-1">
+                          <strong>Phone:</strong>{' '}
+                          <a href={`tel:${schoolInfo.authority.phone}`} className="text-blue-600 hover:text-blue-800 underline">
+                            {schoolInfo.authority.phone}
+                          </a>
+                        </p>
+                      )}
+                      {schoolInfo.authority.email && (
+                        <p className="text-gray-700 mb-1">
+                          <strong>Email:</strong>{' '}
+                          <a href={`mailto:${schoolInfo.authority.email}`} className="text-blue-600 hover:text-blue-800 underline">
+                            {schoolInfo.authority.email}
+                          </a>
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Age-Specific Guidance */}
+                  {schoolInfo.guidance && (
+                    <div className={`mb-3 p-3 rounded text-xs ${
+                      schoolInfo.guidance.level === 'too_young' ? 'bg-yellow-50 border border-yellow-200' :
+                      schoolInfo.guidance.level === 'kindergarten' || schoolInfo.guidance.level === 'primary' ? 'bg-green-50 border border-green-200' :
+                      'bg-blue-50 border border-blue-200'
+                    }`}>
+                      <p className="font-medium mb-1" style={{ color: '#374151' }}>
+                        {schoolInfo.guidance.message}
+                      </p>
+                      <p className="text-gray-700">{schoolInfo.guidance.action}</p>
+                      {schoolInfo.guidance.age_requirement && (
+                        <p className="text-gray-600 mt-1">
+                          <strong>Age requirement:</strong> {schoolInfo.guidance.age_requirement}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Registration Process */}
+                  {schoolInfo.registration_info?.registration_process && (
+                    <div className="mb-3 text-xs">
+                      <p className="font-medium mb-2" style={{ color: '#374151' }}>Registration Process:</p>
+                      <p className="text-gray-700 whitespace-pre-line">{schoolInfo.registration_info.registration_process}</p>
+                    </div>
+                  )}
+                  
+                  {/* Required Documents (if different from default list) */}
+                  {schoolInfo.registration_info?.required_documents && 
+                   schoolInfo.registration_info.required_documents.length > 0 && (
+                    <div className="mb-3 text-xs">
+                      <p className="font-medium mb-2" style={{ color: '#374151' }}>Additional Required Documents:</p>
+                      <ul className="list-disc list-inside space-y-1 text-gray-700">
+                        {schoolInfo.registration_info.required_documents.map((doc: string, i: number) => (
+                          <li key={i}>{doc}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {/* Registration Deadline */}
+                  {schoolInfo.registration_info?.registration_deadline && (
+                    <div className="mb-3 p-2 bg-orange-50 border border-orange-200 rounded text-xs">
+                      <p className="text-orange-900">
+                        <strong>Deadline:</strong> {schoolInfo.registration_info.registration_deadline}
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Registration Form */}
+                  {schoolInfo.registration_info?.registration_form_pdf_url && (
+                    <div className="mb-3">
+                      <a
+                        href={schoolInfo.registration_info.registration_form_pdf_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-600 hover:text-blue-800 underline"
+                      >
+                        📄 Download Registration Form (PDF) →
+                      </a>
+                    </div>
+                  )}
+                  
+                  {/* Special Notes */}
+                  {schoolInfo.registration_info?.special_notes && (
+                    <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-900">
+                      ⚠️ {schoolInfo.registration_info.special_notes}
+                    </div>
+                  )}
+                  
+                  {/* Official Website Link */}
+                  {schoolInfo.authority?.website_url && (
+                    <p className="text-xs mt-2">
+                      <a
+                        href={schoolInfo.authority.website_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 underline"
+                      >
+                        Visit official school authority website →
+                      </a>
+                    </p>
+                  )}
+                  
+                  {schoolInfo.cached && (
+                    <p className="text-xs mt-2 italic" style={{ color: '#9CA3AF' }}>
+                      (Information cached • Last updated: {new Date().toLocaleDateString('de-CH')})
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-gray-500">
+                  School registration information not available. Please check the official website.
+                </p>
+              )}
+            </div>
+          )}
+          
           <p className="leading-relaxed mt-4">
             Use our{' '}
             <a
