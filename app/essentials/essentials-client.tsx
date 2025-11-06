@@ -1271,30 +1271,43 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                         </h5>
                         {loadingMunicipality ? (
                           <p className="text-xs text-gray-500">Loading opening hours...</p>
-                        ) : municipalityInfo?.einwohnerdienste?.formatted_hours ? (
+                        ) : municipalityInfo?.opening_hours && Object.keys(municipalityInfo.opening_hours).length > 0 ? (
                           <>
-                            <p className="text-sm whitespace-pre-line" style={{ color: '#374151' }}>
-                              {municipalityInfo.einwohnerdienste.formatted_hours}
-                            </p>
-                            {municipalityInfo.einwohnerdienste.phone && (
+                            <div className="space-y-1 text-sm">
+                              {Object.entries(municipalityInfo.opening_hours).map(([day, hours]) => (
+                                <div key={day} className="flex justify-between">
+                                  <span className="text-gray-600">{day}</span>
+                                  <span className="font-mono font-medium">{hours as string}</span>
+                                </div>
+                              ))}
+                            </div>
+                            {municipalityInfo.phone && (
                               <p className="text-xs mt-2" style={{ color: '#6B7280' }}>
-                                Phone: {municipalityInfo.einwohnerdienste.phone}
-                              </p>
-                            )}
-                            {municipalityInfo.einwohnerdienste.email && (
-                              <p className="text-xs" style={{ color: '#6B7280' }}>
-                                Email:{' '}
+                                Phone:{' '}
                                 <a
-                                  href={`mailto:${municipalityInfo.einwohnerdienste.email}`}
+                                  href={`tel:${municipalityInfo.phone}`}
                                   className="text-blue-600 hover:text-blue-800 underline"
                                 >
-                                  {municipalityInfo.einwohnerdienste.email}
+                                  {municipalityInfo.phone}
                                 </a>
                               </p>
                             )}
-                            <p className="text-xs mt-2 italic" style={{ color: '#9CA3AF' }}>
-                              (Last checked: {new Date(municipalityInfo.last_checked).toLocaleDateString('en-GB')})
-                            </p>
+                            {municipalityInfo.email && (
+                              <p className="text-xs" style={{ color: '#6B7280' }}>
+                                Email:{' '}
+                                <a
+                                  href={`mailto:${municipalityInfo.email}`}
+                                  className="text-blue-600 hover:text-blue-800 underline"
+                                >
+                                  {municipalityInfo.email}
+                                </a>
+                              </p>
+                            )}
+                            {municipalityInfo.cached && (
+                              <p className="text-xs mt-2 italic" style={{ color: '#9CA3AF' }}>
+                                (Information cached • Last updated: {new Date(municipalityInfo.cached_at).toLocaleDateString('de-CH')})
+                              </p>
+                            )}
                           </>
                         ) : (
                           <p className="text-sm" style={{ color: '#6B7280' }}>
