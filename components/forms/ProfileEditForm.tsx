@@ -381,18 +381,25 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
       }
 
       // Prepare profile data - map form fields to database columns
+      // This ensures all fields are saved, even if they were missing in old accounts
       const profileData: any = {
         user_id: user.id,
         // User metadata fields (stored in auth.users.user_metadata)
         // These are handled separately below
         // Profile fields (stored in profiles table)
-        country_of_origin_id: data.country_of_origin ? parseInt(data.country_of_origin, 10) : null,
+        // Handle country_of_origin: can be string ID or already parsed
+        country_of_origin_id: data.country_of_origin 
+          ? (typeof data.country_of_origin === 'number' 
+              ? data.country_of_origin 
+              : parseInt(data.country_of_origin, 10))
+          : null,
         primary_language: data.primary_language || data.language || null,
         gender: data.gender || null,
         date_of_birth: data.date_of_birth || null,
         arrival_date: data.arrival_date || null,
         living_duration: data.living_duration || null,
-        has_children: data.has_children || false,
+        has_children: data.has_children === true || data.has_children === 'true' ? true : 
+                     (data.has_children === false || data.has_children === 'false' ? false : false),
         living_situation: data.living_situation || null,
         current_situation: data.current_situation || null,
         // Map address fields from form format (swiss_address_*) to DB format (address_*)
@@ -402,8 +409,11 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
         city: data.swiss_address_city || data.city || null,
         municipality_name: data.municipality_name || null,
         avatar_url: avatarUrl || null,
+        // Store first_name and last_name in profile for easier access
+        first_name: data.first_name || null,
+        last_name: data.last_name || null,
         updated_at: new Date().toISOString(),
-        // Legacy fields (kept for compatibility)
+        // Legacy fields (kept for compatibility, but set to null to avoid confusion)
         country: null,
         language: null,
       }

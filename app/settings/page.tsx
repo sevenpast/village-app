@@ -107,19 +107,21 @@ export default function SettingsPage() {
       const userMetadata = user.user_metadata || {}
 
       // Map profile data to include all necessary fields
+      // This ensures backward compatibility with old accounts
       const mappedProfile = {
         ...(profile || {}),
         interests: interests?.map(i => i.interest_key) || [],
         children: children,
         // User metadata fields (from auth.users table)
+        // Priority: user_metadata > profile.first_name > null
         first_name: userMetadata.first_name || profile?.first_name || null,
         last_name: userMetadata.last_name || profile?.last_name || null,
-        // Profile fields from database
+        // Profile fields from database (with null defaults for missing fields)
         gender: profile?.gender || null,
         date_of_birth: profile?.date_of_birth || null,
         arrival_date: profile?.arrival_date || null,
         living_duration: profile?.living_duration || null,
-        has_children: profile?.has_children || false,
+        has_children: profile?.has_children !== undefined ? profile.has_children : false,
         // Ensure address fields are available
         address_street: profile?.address_street || null,
         address_number: profile?.address_number || null,
@@ -127,11 +129,13 @@ export default function SettingsPage() {
         city: profile?.city || null,
         municipality_name: profile?.municipality_name || profile?.city || null,
         // Handle both old and new field names for backward compatibility
-        country_of_origin_id: profile?.country_of_origin_id,
-        primary_language: profile?.primary_language,
-        // Keep legacy fields if they exist
-        country: profile?.country,
-        language: profile?.language,
+        country_of_origin_id: profile?.country_of_origin_id || null,
+        primary_language: profile?.primary_language || profile?.language || null,
+        // Keep legacy fields if they exist (for migration purposes)
+        country: profile?.country || null,
+        language: profile?.language || null,
+        // Avatar
+        avatar_url: profile?.avatar_url || null,
       }
 
       console.log('✅ Mapped profile data:', mappedProfile)
