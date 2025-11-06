@@ -303,10 +303,11 @@ JSON:`
     }
   } catch (error) {
     console.error('Gemini extraction failed:', error)
-    let responseText = ''
+    
+    // Try to get response text for debugging
     try {
       const result = await model.generateContent(prompt)
-      responseText = result.response.text()
+      const responseText = result.response.text()
       console.error('Response text:', responseText)
     } catch (e) {
       // Ignore - already logged above
