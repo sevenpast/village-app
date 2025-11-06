@@ -1943,7 +1943,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
             )}
             .
           </p>
-          {/* Municipality Opening Hours and Contact Info */}
+          {/* Municipality Opening Hours and Contact Info - Only for Task 2 */}
           {selectedTask === 2 && taskData.user_data?.municipality_name && (
             <div className="mt-4 p-4 bg-gray-50 rounded-lg border" style={{ borderColor: '#E5E7EB' }}>
               <h4 className="font-semibold text-sm mb-3" style={{ color: '#2D5016' }}>
@@ -1955,7 +1955,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
               ) : municipalityInfo ? (
                 <>
                   {/* Opening Hours */}
-                  {municipalityInfo.opening_hours && Object.keys(municipalityInfo.opening_hours).length > 0 && (
+                  {municipalityInfo.opening_hours && Object.keys(municipalityInfo.opening_hours).length > 0 ? (
                     <div className="mb-3">
                       <p className="text-xs font-medium mb-2" style={{ color: '#374151' }}>Opening Hours:</p>
                       <div className="space-y-1 text-xs">
@@ -1967,6 +1967,8 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                         ))}
                       </div>
                     </div>
+                  ) : (
+                    <p className="text-xs text-gray-500 mb-3">Opening hours not available. Please check the official website.</p>
                   )}
                   
                   {/* Contact Info */}
