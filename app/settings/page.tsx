@@ -133,14 +133,6 @@ export default function SettingsPage() {
         plz: profile?.plz || null,
         city: profile?.city || null,
         municipality_name: profile?.municipality_name || profile?.city || null,
-      }
-      
-      console.log('✅ Mapped profile data (with municipality):', {
-        municipality_name: mappedProfile.municipality_name,
-        city: mappedProfile.city,
-        plz: mappedProfile.plz,
-        address_street: mappedProfile.address_street,
-      })
         // Handle both old and new field names for backward compatibility
         country_of_origin_id: profile?.country_of_origin_id || null,
         primary_language: profile?.primary_language || profile?.language || null,
@@ -150,7 +142,14 @@ export default function SettingsPage() {
         // Avatar
         avatar_url: profile?.avatar_url || null,
       }
-
+      
+      console.log('✅ Mapped profile data (with municipality):', {
+        municipality_name: mappedProfile.municipality_name,
+        city: mappedProfile.city,
+        plz: mappedProfile.plz,
+        address_street: mappedProfile.address_street,
+      })
+      
       console.log('✅ Mapped profile data:', mappedProfile)
       setProfileData(mappedProfile)
 
