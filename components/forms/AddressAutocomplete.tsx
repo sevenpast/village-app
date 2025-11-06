@@ -141,9 +141,14 @@ export default function AddressAutocomplete({
       setValue(`${fieldName}_number`, '', { shouldDirty: true })
       setValue(`${fieldName}_plz`, data.postalcode, { shouldDirty: true })
       setValue(`${fieldName}_city`, data.place_name, { shouldDirty: true })
-      // Also set municipality if needed
+      // Always set municipality_name from Supabase data (most reliable source)
       if (data.municipality_name) {
+        console.log('📍 Setting municipality_name from Supabase data:', data.municipality_name)
         setValue('municipality_name', data.municipality_name, { shouldDirty: true })
+      } else if (data.place_name) {
+        // Fallback to place_name if municipality_name not available
+        console.log('📍 Setting municipality_name from place_name (fallback):', data.place_name)
+        setValue('municipality_name', data.place_name, { shouldDirty: true })
       }
     } else {
       // Original Nominatim format
@@ -157,12 +162,19 @@ export default function AddressAutocomplete({
                        addressDetails.town || 
                        addressDetails.village || 
                        addressDetails.municipality || ''
+      const municipalityName = addressDetails.municipality || cityName || ''
 
       // Fill form fields
       setValue(`${fieldName}_street`, streetName, { shouldDirty: true })
       setValue(`${fieldName}_number`, houseNumber, { shouldDirty: true })
       setValue(`${fieldName}_plz`, postalCode, { shouldDirty: true })
       setValue(`${fieldName}_city`, cityName, { shouldDirty: true })
+      
+      // Set municipality_name from Nominatim data
+      if (municipalityName) {
+        console.log('📍 Setting municipality_name from Nominatim data:', municipalityName)
+        setValue('municipality_name', municipalityName, { shouldDirty: true })
+      }
     }
 
     setSelectedAddress(address)
