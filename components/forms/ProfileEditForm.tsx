@@ -91,9 +91,24 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
           return
         }
 
+        // Skip children field entirely - it's not a form field, it's derived data
+        // Also skip dynamic children fields (child_*, children_ages, etc.)
+        if (fieldKey === 'children' || isDynamicField(fieldKey)) {
+          return
+        }
+
         let fieldSchema: z.ZodTypeAny = z.any()
 
-        if (field.type === 'text' || field.type === 'select') {
+        // Special handling for boolean fields (has_children, etc.)
+        if (fieldKey === 'has_children') {
+          // Boolean fields should accept boolean, string ('true'/'false'), or be optional
+          fieldSchema = z.union([
+            z.boolean(),
+            z.string().transform((val) => val === 'true' || val === '1'),
+            z.undefined(),
+            z.null(),
+          ]).optional().nullable()
+        } else if (field.type === 'text' || field.type === 'select') {
           fieldSchema = z.string().optional()
         } else if (field.type === 'multiselect') {
           fieldSchema = z.array(z.string()).optional()
