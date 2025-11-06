@@ -10,7 +10,7 @@ import { ConfigFormField } from './ConfigFormField'
 import AddressAutocomplete from './AddressAutocomplete'
 import DynamicChildrenFields from './DynamicChildrenFields'
 import AvatarUpload from './AvatarUpload'
-import { useFormSchema } from '@/hooks/useFormSchema'
+import { useFormSchema, useDictionaries } from '@/hooks/useFormSchema'
 
 /**
  * Check if a field is dynamic (e.g., children fields that can vary in count)
@@ -50,6 +50,28 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
   const { data: formConfig, isLoading: schemaLoading } = useFormSchema('registration')
   const [saving, setSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  
+  // Collect all dictionary keys needed across all steps
+  const dictionaryKeys = useMemo(() => {
+    if (!formConfig?.steps) return []
+    const keys: string[] = []
+    formConfig.steps.forEach((step) => {
+      if (step?.fields && Array.isArray(step.fields)) {
+        step.fields.forEach((field) => {
+          if (field.dictionary && !keys.includes(field.dictionary)) {
+            keys.push(field.dictionary)
+          }
+        })
+      }
+    })
+    return keys
+  }, [formConfig])
+  
+  // Load all required dictionaries at once
+  const { data: dictionaries = {}, isLoading: dictionariesLoading } = useDictionaries(
+    dictionaryKeys,
+    'en'
+  )
 
   // Build Zod schema from form config
   const zodSchema = useMemo(() => {
@@ -596,7 +618,7 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
   }
 
   // All conditional returns MUST come after all hooks
-  if (schemaLoading) {
+  if (schemaLoading || dictionariesLoading) {
     return (
       <div className="max-w-4xl mx-auto px-6">
         <div className="text-center py-8" style={{ color: '#2D5016' }}>
@@ -746,6 +768,11 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
 
                       // Regular fields - use fieldKey for ConfigFormField
                       // Skip avatar/file types to prevent double rendering
+                      // Get dictionary items for this field if it has a dictionary
+                      const dictionaryItems = field.dictionary
+                        ? dictionaries[field.dictionary]
+                        : undefined
+                      
                       return (
                         <ConfigFormField
                           key={fieldKey}
@@ -761,6 +788,7 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
                             autocomplete: (field as any).autocomplete,
                           }}
                           locale="en"
+                          dictionaryItems={dictionaryItems}
                         />
                       )
                   })}
