@@ -124,6 +124,13 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
         }
       })
     })
+    
+    // Add municipality_name to schema if not already present (it's set by AddressAutocomplete)
+    if (!schemaFields['municipality_name']) {
+      schemaFields['municipality_name'] = z.string().optional().nullable()
+    }
+      })
+    })
 
     return z.object(schemaFields)
   }, [formConfig])
@@ -444,7 +451,9 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
         address_number: data.swiss_address_number || data.address_number || null,
         plz: data.swiss_address_plz || data.plz || null,
         city: data.swiss_address_city || data.city || null,
-        municipality_name: data.municipality_name || null,
+        // municipality_name can come from AddressAutocomplete or be set manually
+        // Priority: data.municipality_name > data.city (fallback to city if municipality not set)
+        municipality_name: data.municipality_name || data.swiss_address_city || data.city || null,
         avatar_url: avatarUrl || null,
         // Note: first_name and last_name are stored in auth.users.user_metadata, NOT in profiles table
         // They are updated separately below
@@ -453,6 +462,18 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
         country: null,
         language: null,
       }
+      
+      console.log('💾 Profile data to save:', {
+        municipality_name: profileData.municipality_name,
+        city: profileData.city,
+        plz: profileData.plz,
+        address_street: profileData.address_street,
+        from_form_data: {
+          municipality_name: data.municipality_name,
+          swiss_address_city: data.swiss_address_city,
+          city: data.city,
+        }
+      })
 
       // Remove undefined values to avoid issues
       Object.keys(profileData).forEach(key => {
