@@ -53,10 +53,10 @@ export default function SettingsPage() {
       const name = user.user_metadata?.first_name || user.email?.split('@')[0] || 'User'
       setFirstName(name)
 
-      // Load profile
+      // Load profile - explicitly select municipality_name to ensure it's loaded
       const { data: profile, error: profileError } = await (supabase
         .from('profiles') as any)
-        .select('*')
+        .select('*, municipality_name')
         .eq('user_id', user.id)
         .single()
 
@@ -83,7 +83,12 @@ export default function SettingsPage() {
         }
       }
 
-      console.log('✅ Profile loaded:', profile)
+      console.log('✅ Profile loaded:', {
+        ...profile,
+        municipality_name: profile?.municipality_name,
+        city: profile?.city,
+        plz: profile?.plz,
+      })
       
       // Set avatar URL if available
       if (profile?.avatar_url) {
@@ -128,6 +133,14 @@ export default function SettingsPage() {
         plz: profile?.plz || null,
         city: profile?.city || null,
         municipality_name: profile?.municipality_name || profile?.city || null,
+      }
+      
+      console.log('✅ Mapped profile data (with municipality):', {
+        municipality_name: mappedProfile.municipality_name,
+        city: mappedProfile.city,
+        plz: mappedProfile.plz,
+        address_street: mappedProfile.address_street,
+      })
         // Handle both old and new field names for backward compatibility
         country_of_origin_id: profile?.country_of_origin_id || null,
         primary_language: profile?.primary_language || profile?.language || null,
