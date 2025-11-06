@@ -366,6 +366,16 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
     setSaveSuccess(false)
 
     try {
+      console.log('📝 Form submission data:', {
+        municipality_name: data.municipality_name,
+        swiss_address_city: data.swiss_address_city,
+        city: data.city,
+        swiss_address_plz: data.swiss_address_plz,
+        plz: data.plz,
+        swiss_address_street: data.swiss_address_street,
+        address_street: data.address_street,
+      })
+      
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
 
