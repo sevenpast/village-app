@@ -752,12 +752,18 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
                           : fieldKey.replace('_street', '').replace('_autocomplete', '')
                         
                         return (
-                          <AddressAutocomplete
-                            key={fieldKey}
-                            fieldName={addressFieldName}
-                            label={field.label || 'Address'}
-                            required={field.required || false}
-                          />
+                          <div key={fieldKey}>
+                            <AddressAutocomplete
+                              fieldName={addressFieldName}
+                              label={field.label || 'Address'}
+                              required={field.required || false}
+                            />
+                            {/* Hidden field for municipality_name - set by AddressAutocomplete */}
+                            <input
+                              type="hidden"
+                              {...methods.register('municipality_name')}
+                            />
+                          </div>
                         )
                       }
 
