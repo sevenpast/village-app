@@ -1077,16 +1077,23 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   }
 
   const loadMunicipalityInfo = async (municipalityName: string) => {
-    if (!municipalityName) return
+    if (!municipalityName) {
+      console.log('No municipality name provided')
+      return
+    }
     
+    console.log('Loading municipality info for:', municipalityName)
     setLoadingMunicipality(true)
     try {
       // Use new municipality info API
       const response = await fetch(`/api/municipality/info?query=${encodeURIComponent(municipalityName)}`)
       if (response.ok) {
         const info = await response.json()
+        console.log('Municipality info loaded:', info)
         setMunicipalityInfo(info)
       } else {
+        const errorData = await response.json().catch(() => ({}))
+        console.warn('Municipality info not available:', errorData)
         // Municipality info not available - not an error, just not found
         setMunicipalityInfo(null)
       }
