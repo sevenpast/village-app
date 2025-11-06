@@ -947,6 +947,12 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       // Get task title
       const taskTitle = tasks.find(t => t.id === selectedTask)?.title || `Task ${selectedTask}`
       
+      // Get municipality email for Task 2 (Register at Gemeinde)
+      let recipientEmail = ''
+      if (selectedTask === 2 && municipalityInfo?.email) {
+        recipientEmail = municipalityInfo.email
+      }
+      
       // Show loading state
       const loadingMessage = document.createElement('div')
       loadingMessage.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #2D5016; color: white; padding: 12px 24px; border-radius: 8px; z-index: 10000; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'
@@ -954,13 +960,14 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       document.body.appendChild(loadingMessage)
 
       try {
-        // Create EML file with all documents (empty fields - user can fill in mail client)
+        // Create EML file with all documents
+        // Pre-fill recipient email if available (Task 2 - municipality email)
         await createEMLWithMultipleDocuments(
           documentsToSend,
           {
-            to: '',
+            to: recipientEmail,
             subject: `${taskTitle}: Required Documents (${documentsToSend.length} files)`,
-            body: `Please find the attached documents for: ${taskTitle}\n\nDocuments included:\n${documentsToSend.map((d, i) => `${i + 1}. ${d.name}`).join('\n')}`,
+            body: `Please find the attached documents for: ${taskTitle}\n\nDocuments included:\n${documentsToSend.map((d, i) => `${i + 1}. ${d.name}`).join('\n')}${recipientEmail ? `\n\nThis email is addressed to: ${taskData.user_data?.municipality_name || 'your municipality'}` : ''}`,
           }
         )
 
@@ -1074,7 +1081,8 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     
     setLoadingMunicipality(true)
     try {
-      const response = await fetch(`/api/municipality/${encodeURIComponent(municipalityName)}`)
+      // Use new municipality info API
+      const response = await fetch(`/api/municipality/info?query=${encodeURIComponent(municipalityName)}`)
       if (response.ok) {
         const info = await response.json()
         setMunicipalityInfo(info)
@@ -1084,6 +1092,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       }
     } catch (error) {
       // Silently handle errors - municipality info is optional
+      console.error('Error loading municipality info:', error)
       setMunicipalityInfo(null)
     } finally {
       setLoadingMunicipality(false)
@@ -1892,27 +1901,93 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           <div className="mt-4">
             {renderDocumentsTable(documentRequirements)}
           </div>
-          <p className="leading-relaxed mt-4">
-            To check for specific requirements for{' '}
-            <strong style={{ color: '#2D5016' }}>
-              {taskData.user_data?.municipality_name || 'your municipality'}
-            </strong>
-            , visit the official{' '}
-            <a
-              href={
-                taskData.user_data?.municipality_name
-                  ? municipalityInfo?.einwohnerdienste?.registration_url || 
-                    getMunicipalityUrl(taskData.user_data.municipality_name)
-                  : '#'
-              }
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:text-blue-800 underline"
-            >
-              website
-            </a>
-            .
-          </p>
+          {/* Municipality Opening Hours and Contact Info */}
+          {selectedTask === 2 && taskData.user_data?.municipality_name && (
+            <div className="mt-4 p-4 bg-gray-50 rounded-lg border" style={{ borderColor: '#E5E7EB' }}>
+              <h4 className="font-semibold text-sm mb-3" style={{ color: '#2D5016' }}>
+                {taskData.user_data.municipality_name} - Office Information
+              </h4>
+              
+              {loadingMunicipality ? (
+                <p className="text-xs text-gray-500">Loading municipality information...</p>
+              ) : municipalityInfo ? (
+                <>
+                  {/* Opening Hours */}
+                  {municipalityInfo.opening_hours && Object.keys(municipalityInfo.opening_hours).length > 0 && (
+                    <div className="mb-3">
+                      <p className="text-xs font-medium mb-2" style={{ color: '#374151' }}>Opening Hours:</p>
+                      <div className="space-y-1 text-xs">
+                        {Object.entries(municipalityInfo.opening_hours).map(([day, hours]) => (
+                          <div key={day} className="flex justify-between">
+                            <span className="text-gray-600">{day}</span>
+                            <span className="font-mono font-medium">{hours as string}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Contact Info */}
+                  {(municipalityInfo.phone || municipalityInfo.email || municipalityInfo.address) && (
+                    <div className="mb-3 text-xs">
+                      {municipalityInfo.address && (
+                        <p className="text-gray-700 mb-1">
+                          <strong>Address:</strong> {municipalityInfo.address}
+                        </p>
+                      )}
+                      {municipalityInfo.phone && (
+                        <p className="text-gray-700 mb-1">
+                          <strong>Phone:</strong>{' '}
+                          <a href={`tel:${municipalityInfo.phone}`} className="text-blue-600 hover:text-blue-800 underline">
+                            {municipalityInfo.phone}
+                          </a>
+                        </p>
+                      )}
+                      {municipalityInfo.email && (
+                        <p className="text-gray-700 mb-1">
+                          <strong>Email:</strong>{' '}
+                          <a href={`mailto:${municipalityInfo.email}`} className="text-blue-600 hover:text-blue-800 underline">
+                            {municipalityInfo.email}
+                          </a>
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Official Website Link */}
+                  {municipalityInfo.website_url && (
+                    <p className="text-xs mt-2">
+                      <a
+                        href={municipalityInfo.website_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 underline"
+                      >
+                        Visit official website →
+                      </a>
+                    </p>
+                  )}
+                  
+                  {/* Special Notices */}
+                  {municipalityInfo.special_notices && (
+                    <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-900">
+                      ⚠️ {municipalityInfo.special_notices}
+                    </div>
+                  )}
+                  
+                  {municipalityInfo.cached && (
+                    <p className="text-xs mt-2 italic" style={{ color: '#9CA3AF' }}>
+                      (Information cached • Last updated: {new Date(municipalityInfo.cached_at).toLocaleDateString('de-CH')})
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-gray-500">
+                  Municipality information not available. Please check the official website.
+                </p>
+              )}
+            </div>
+          )}
           <div className="mt-4 pt-4 border-t" style={{ borderColor: '#E5E7EB' }}>
             <div className="flex gap-3">
               <button
