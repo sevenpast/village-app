@@ -74,8 +74,11 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
     { id: 5, title: 'Receive residence permit card', number: 5 },
   ]
   
-  // Count active reminders - use reminderActive state as source of truth, fallback to localStorage
-  const getActiveRemindersCount = () => {
+  // Count active reminders - use state to avoid hydration mismatch
+  const [activeRemindersCount, setActiveRemindersCount] = useState(0)
+  
+  // Update active reminders count after mount (client-side only)
+  useEffect(() => {
     // First, try to count from state (most accurate)
     const stateCount = Object.values(reminderActive).filter(Boolean).length
     
@@ -86,12 +89,11 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
         const isActive = localStorage.getItem(`task_${task.id}_reminder_active`) === 'true'
         if (isActive) count++
       })
-      return count
+      setActiveRemindersCount(count)
+    } else {
+      setActiveRemindersCount(stateCount)
     }
-    
-    return stateCount
-  }
-  const activeRemindersCount = getActiveRemindersCount()
+  }, [reminderActive])
 
   // Load task data when task is selected
   useEffect(() => {
