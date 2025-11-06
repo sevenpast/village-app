@@ -1914,6 +1914,35 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           <div className="mt-4">
             {renderDocumentsTable(documentRequirements)}
           </div>
+          <p className="leading-relaxed mt-4">
+            To check for specific requirements for{' '}
+            <strong style={{ color: '#2D5016' }}>
+              {taskData.user_data?.municipality_name || 'your municipality'}
+            </strong>
+            , visit the official{' '}
+            {taskData.user_data?.municipality_name && municipalityInfo?.website_url ? (
+              <a
+                href={municipalityInfo.website_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-800 underline"
+              >
+                website
+              </a>
+            ) : taskData.user_data?.municipality_name ? (
+              <a
+                href={getMunicipalityUrl(taskData.user_data.municipality_name)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-800 underline"
+              >
+                website
+              </a>
+            ) : (
+              <span className="text-blue-600 underline">website</span>
+            )}
+            .
+          </p>
           {/* Municipality Opening Hours and Contact Info */}
           {selectedTask === 2 && taskData.user_data?.municipality_name && (
             <div className="mt-4 p-4 bg-gray-50 rounded-lg border" style={{ borderColor: '#E5E7EB' }}>
