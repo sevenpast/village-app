@@ -446,9 +446,8 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
         city: data.swiss_address_city || data.city || null,
         municipality_name: data.municipality_name || null,
         avatar_url: avatarUrl || null,
-        // Store first_name and last_name in profile for easier access
-        first_name: data.first_name || null,
-        last_name: data.last_name || null,
+        // Note: first_name and last_name are stored in auth.users.user_metadata, NOT in profiles table
+        // They are updated separately below
         updated_at: new Date().toISOString(),
         // Legacy fields (kept for compatibility, but set to null to avoid confusion)
         country: null,
