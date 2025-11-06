@@ -645,12 +645,11 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
         }
       }
 
-      // Wait a moment for everything to complete, then navigate back to dashboard
-      console.log('⏳ Waiting for save to complete, then navigating...')
-      await new Promise(resolve => setTimeout(resolve, 1500)) // 1.5 seconds to ensure everything is saved
+      // Show success message - user stays on settings page
+      console.log('✅ Profile saved successfully - staying on settings page')
       
-      console.log('🚀 Navigating back to dashboard...')
-      router.push('/')
+      // Optional: Show a success toast/notification here if you have a toast system
+      // For now, the user can continue editing on the same page
     } catch (error) {
       console.error('❌ Unexpected error saving profile:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
