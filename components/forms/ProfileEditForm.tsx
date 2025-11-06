@@ -188,6 +188,14 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
         keepDefaultValues: false, // Override default values
         keepValues: false, // Don't keep existing values
       })
+      
+      // Explicitly set municipality_name if it exists (it might not be in form schema)
+      if (mapProfileToFormData.municipality_name) {
+        methods.setValue('municipality_name', mapProfileToFormData.municipality_name, {
+          shouldDirty: false,
+          shouldValidate: false,
+        })
+      }
     }
   }, [initialData, mapProfileToFormData, methods])
 
