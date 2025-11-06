@@ -129,8 +129,6 @@ export default function ProfileEditForm({ initialData, userEmail, onSave }: Prof
     if (!schemaFields['municipality_name']) {
       schemaFields['municipality_name'] = z.string().optional().nullable()
     }
-      })
-    })
 
     return z.object(schemaFields)
   }, [formConfig])
