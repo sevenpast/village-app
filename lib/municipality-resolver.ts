@@ -4,6 +4,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server'
+import { findMunicipalityInOpenData, fetchSwissMunicipalityData } from '@/lib/opendata-swiss'
 
 export interface ResolvedMunicipality {
   gemeinde_name: string
@@ -26,15 +27,29 @@ export async function resolveMunicipality(
 
   // Case 1: Is it a PLZ? (4 digits)
   if (/^\d{4}$/.test(userInput.trim())) {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('municipality_master_data')
       .select('*')
       .contains('plz', [userInput.trim()])
       .maybeSingle()
 
+    // If table doesn't exist, try alternative table name
+    if (error && error.code === 'PGRST205') {
+      console.log('🔄 Trying alternative table name for PLZ: municipalities')
+      const result1 = await supabase
+        .from('municipalities')
+        .select('*')
+        .contains('plz', [userInput.trim()])
+        .maybeSingle()
+
+      data = result1.data
+      error = result1.error
+    }
+
     if (error) {
-      console.error('Error resolving PLZ:', error)
-      throw new Error(`Failed to resolve PLZ: ${userInput}`)
+      console.log(`⚠ PLZ lookup failed (${error.code}): ${error.message}`)
+      console.log('📋 Falling back to web scraping for PLZ resolution')
+      return null  // Fallback to web scraping
     }
 
     if (data) {
@@ -58,23 +73,41 @@ export async function resolveMunicipality(
       .replace(/ö/g, 'oe')
       .replace(/ä/g, 'ae')
       .replace(/ß/g, 'ss')
+      .trim()
   }
   
   const normalizedInput = normalizeForSearch(userInput.trim())
+  console.log(`🔍 Resolving municipality: "${userInput}" (normalized: "${normalizedInput}")`)
   
-  // First try exact match with ilike
+  // First try exact match with ilike (handles case-insensitive)
   let { data, error } = await supabase
     .from('municipality_master_data')
     .select('*')
     .ilike('gemeinde_name', userInput.trim())
     .maybeSingle()
 
+  // If table doesn't exist, try alternative table names
+  if (error && error.code === 'PGRST205') {
+    console.log('🔄 Trying alternative table name: municipalities')
+    const result2 = await supabase
+      .from('municipalities')
+      .select('*')
+      .ilike('gemeinde_name', userInput.trim())
+      .maybeSingle()
+
+    data = result2.data
+    error = result2.error
+  }
+
+  // If both tables don't exist or other errors, gracefully return null for fallback scraping
   if (error) {
-    console.error('Error resolving municipality name:', error)
-    throw new Error(`Failed to resolve municipality: ${userInput}`)
+    console.log(`⚠ Municipality table not accessible (${error.code}): ${error.message}`)
+    console.log('📋 Falling back to web scraping for municipality data')
+    return null  // This will trigger fallback scraping
   }
 
   if (data) {
+    console.log(`✓ Found exact match: ${data.gemeinde_name} (BFS: ${data.bfs_nummer})`)
     return {
       gemeinde_name: data.gemeinde_name,
       ortsteil: userInput.trim(),
@@ -87,25 +120,43 @@ export async function resolveMunicipality(
   
   // Try with normalized search if exact match failed
   // Get all municipalities and filter client-side for better Umlaut handling
-  const { data: allMunicipalities, error: allError } = await supabase
+  let { data: allMunicipalities, error: allError } = await supabase
     .from('municipality_master_data')
     .select('*')
 
+  // If table doesn't exist, try alternative table name
+  if (allError && allError.code === 'PGRST205') {
+    console.log('🔄 Trying alternative table name for all municipalities: municipalities')
+    const result3 = await supabase
+      .from('municipalities')
+      .select('*')
+
+    allMunicipalities = result3.data
+    allError = result3.error
+  }
+
   if (allError) {
-    console.error('Error fetching all municipalities:', allError)
-    throw new Error(`Failed to resolve municipality: ${userInput}`)
+    console.log(`⚠ Municipality lookup failed (${allError.code}): ${allError.message}`)
+    console.log('📋 Falling back to web scraping for municipality data')
+    return null  // Fallback to web scraping
   }
 
   if (allMunicipalities) {
     // Find match with normalized comparison
     const match = allMunicipalities.find(muni => {
       const normalizedMuni = normalizeForSearch(muni.gemeinde_name)
-      return normalizedMuni === normalizedInput || 
-             normalizedMuni.includes(normalizedInput) ||
-             normalizedInput.includes(normalizedMuni)
+      const isExactMatch = normalizedMuni === normalizedInput
+      const isPartialMatch = normalizedMuni.includes(normalizedInput) || normalizedInput.includes(normalizedMuni)
+      
+      if (isExactMatch || isPartialMatch) {
+        console.log(`  → Checking: "${muni.gemeinde_name}" (normalized: "${normalizedMuni}")`)
+      }
+      
+      return isExactMatch || isPartialMatch
     })
 
     if (match) {
+      console.log(`✓ Found normalized match: ${match.gemeinde_name} (BFS: ${match.bfs_nummer})`)
       return {
         gemeinde_name: match.gemeinde_name,
         ortsteil: userInput.trim(),
@@ -114,17 +165,31 @@ export async function resolveMunicipality(
         registration_pages: match.registration_pages || [],
         kanton: match.kanton,
       }
+    } else {
+      console.log(`⚠ No normalized match found in ${allMunicipalities.length} municipalities`)
     }
   }
 
   // Case 3: Search in Ortsteile (CRITICAL for Kleindöttingen → Böttstein)
-  const { data: ortsteilData, error: ortsteilError } = await supabase
+  let { data: ortsteilData, error: ortsteilError } = await supabase
     .from('municipality_master_data')
     .select('*')
 
+  // If table doesn't exist, try alternative table name
+  if (ortsteilError && ortsteilError.code === 'PGRST205') {
+    console.log('🔄 Trying alternative table name for Ortsteile: municipalities')
+    const result4 = await supabase
+      .from('municipalities')
+      .select('*')
+
+    ortsteilData = result4.data
+    ortsteilError = result4.error
+  }
+
   if (ortsteilError) {
-    console.error('Error searching Ortsteile:', ortsteilError)
-    throw new Error(`Failed to search Ortsteile: ${userInput}`)
+    console.log(`⚠ Ortsteile lookup failed (${ortsteilError.code}): ${ortsteilError.message}`)
+    console.log('📋 Falling back to web scraping for Ortsteile resolution')
+    return null  // Fallback to web scraping
   }
 
   if (ortsteilData) {
@@ -172,6 +237,29 @@ export async function resolveMunicipality(
     }
   }
 
-  throw new Error(`Municipality "${userInput}" not found`)
+  console.log(`🔄 Database search failed, trying opendata.swiss fallback for "${userInput}"`)
+
+  // Case 5: Fallback to opendata.swiss if database is empty or doesn't have the municipality
+  try {
+    const opendataMunicipality = await findMunicipalityInOpenData(userInput)
+
+    if (opendataMunicipality) {
+      console.log(`✅ Found in opendata.swiss: ${opendataMunicipality.gemeinde_name} (BFS: ${opendataMunicipality.bfs_nummer})`)
+
+      return {
+        gemeinde_name: opendataMunicipality.gemeinde_name,
+        ortsteil: userInput.trim(),
+        bfs_nummer: opendataMunicipality.bfs_nummer,
+        website_url: opendataMunicipality.official_website || null,
+        registration_pages: [], // Will be discovered during scraping
+        kanton: opendataMunicipality.kanton,
+      }
+    }
+  } catch (opendataError) {
+    console.error('❌ opendata.swiss fallback also failed:', opendataError)
+  }
+
+  console.error(`❌ Municipality "${userInput}" not found in database or opendata.swiss`)
+  throw new Error(`Municipality "${userInput}" not found. Please check the spelling or try using the postal code (PLZ) instead.`)
 }
 

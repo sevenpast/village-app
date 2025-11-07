@@ -153,7 +153,7 @@ async function matchAddressToDistrict(
     return null
   }
 
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-001' })
 
   const districtInfo = districts
     .map(

@@ -5,9 +5,6 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import AppHeader from '@/components/AppHeader'
 import DocumentVault from '@/components/vault/DocumentVault'
-import HousingVault from '@/components/vault/HousingVault'
-
-type VaultTab = 'documents' | 'housing'
 
 export default function VaultPage() {
   const router = useRouter()
@@ -15,7 +12,6 @@ export default function VaultPage() {
   const [user, setUser] = useState<any>(null)
   const [firstName, setFirstName] = useState('User')
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<VaultTab>('documents')
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -78,41 +74,8 @@ export default function VaultPage() {
       <AppHeader firstName={firstName} avatarUrl={avatarUrl} showHome={true} />
       <main className="flex-1 py-8">
         <div className="container mx-auto px-4">
-          {/* Tabs */}
-          <div className="mb-6 flex gap-2 border-b" style={{ borderColor: '#E5E7EB' }}>
-            <button
-              onClick={() => setActiveTab('documents')}
-              className={`px-6 py-3 font-medium transition-colors ${
-                activeTab === 'documents'
-                  ? 'border-b-2 text-gray-900'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-              style={{
-                borderBottomColor: activeTab === 'documents' ? '#2D5016' : 'transparent',
-                color: activeTab === 'documents' ? '#2D5016' : '#6B7280',
-              }}
-            >
-              Documents
-            </button>
-            <button
-              onClick={() => setActiveTab('housing')}
-              className={`px-6 py-3 font-medium transition-colors ${
-                activeTab === 'housing'
-                  ? 'border-b-2 text-gray-900'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-              style={{
-                borderBottomColor: activeTab === 'housing' ? '#2D5016' : 'transparent',
-                color: activeTab === 'housing' ? '#2D5016' : '#6B7280',
-              }}
-            >
-              Housing
-            </button>
-          </div>
-
-          {/* Tab Content */}
-          {activeTab === 'documents' && <DocumentVault userId={user.id} />}
-          {activeTab === 'housing' && <HousingVault userId={user.id} />}
+          {/* Tab Content - Only Documents now, Housing moved to Task 4 */}
+          <DocumentVault userId={user.id} />
         </div>
       </main>
     </div>

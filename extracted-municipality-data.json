@@ -1,0 +1,274 @@
+[
+  {
+    "name": "Stadt Zürich",
+    "kanton": "Zürich",
+    "einwohnerdienste": {
+      "telefon": "+41 44 413 85 11",
+      "url": "https://www.stadt-z"
+    },
+    "schulamt": {
+      "telefon": "+41 44 413 85 11",
+      "url": "https://www.stadt-z"
+    }
+  },
+  {
+    "name": "Stadt Winterthur",
+    "kanton": "Zürich",
+    "einwohnerdienste": {
+      "telefon": "+41 52 267 63 10",
+      "email": "-anfrage@ksta.zh",
+      "url": "https://www.kuesna"
+    },
+    "schulamt": {
+      "telefon": "+41 52 267 63 10",
+      "email": "-anfrage@ksta.zh",
+      "url": "https://stadt.wintert"
+    }
+  },
+  {
+    "name": "Gemeinde Küsnacht (ZH)",
+    "kanton": "Zürich",
+    "einwohnerdienste": {
+      "telefon": "044 913 11 50",
+      "email": "-anfrage@ksta.zh",
+      "url": "https://www.kuesna"
+    },
+    "schulamt": {
+      "telefon": "+41 43 259 88 00",
+      "email": "-anfrage@ksta.zh",
+      "url": "https://www.schule"
+    }
+  },
+  {
+    "name": "Gemeinde Thalwil",
+    "kanton": "Zürich",
+    "einwohnerdienste": {
+      "telefon": "044 723 22 23",
+      "email": "einwohnerkontrolle@thalwil.ch"
+    },
+    "schulamt": {
+      "telefon": "044 723 22 66",
+      "email": "bildung@thalwil.ch",
+      "url": "https://www.thalwil."
+    }
+  },
+  {
+    "name": "Ville de Genève",
+    "kanton": "Genf",
+    "einwohnerdienste": {
+      "telefon": "+41 22 546 46 46",
+      "email": "ocpm@etat.ge.ch",
+      "url": "https://www.ge.ch/a"
+    },
+    "schulamt": {
+      "telefon": "022 327 04 00",
+      "email": "ocpm@etat.ge.ch",
+      "url": "https://www.ge.ch/i"
+    }
+  },
+  {
+    "name": "Stadt Basel",
+    "kanton": "Basel-Stadt",
+    "einwohnerdienste": {
+      "telefon": "+41 61 267 70 60",
+      "email": "bdm@jsd.bs.ch",
+      "url": "https://www.bs.ch/j"
+    },
+    "schulamt": {
+      "telefon": "061 267 17 60",
+      "email": "bdm@jsd.bs.ch",
+      "url": "https://www.edubs."
+    }
+  },
+  {
+    "name": "Ville de Lausanne",
+    "kanton": "Vaud",
+    "einwohnerdienste": {
+      "telefon": "+41 21 315 31 33",
+      "email": "bce@montreux.ch",
+      "url": "https://www.montre"
+    },
+    "schulamt": {
+      "telefon": "+41 21 315 64 11",
+      "email": "bce@montreux.ch",
+      "url": "https://www.montre"
+    }
+  },
+  {
+    "name": "Commune de Montreux",
+    "kanton": "Vaud",
+    "einwohnerdienste": {
+      "telefon": "021 962 78 33",
+      "email": "bce@montreux.ch",
+      "url": "https://www.montreux.ch/guichet-virtuel/population"
+    },
+    "schulamt": {
+      "telefon": "021 962 78 33",
+      "email": "bce@montreux.ch",
+      "url": "https://www.montre"
+    }
+  },
+  {
+    "name": "Commune de Vevey",
+    "kanton": "Vaud",
+    "einwohnerdienste": {
+      "telefon": "+41 21 925 53 49",
+      "email": "office.population@vevey.ch",
+      "url": "https://www.vd.ch/d"
+    },
+    "schulamt": {
+      "telefon": "+41 21 925 59 20",
+      "email": "info.aci@vd.ch",
+      "url": "https://www.vevey.c"
+    }
+  },
+  {
+    "name": "Commune de Nyon",
+    "kanton": "Vaud",
+    "einwohnerdienste": {
+      "telefon": "022 316 43 80",
+      "email": "controle.habitants@nyon.ch"
+    },
+    "schulamt": {
+      "telefon": "022 316 40 60",
+      "email": "reseau-enfance@nyon.ch"
+    }
+  },
+  {
+    "name": "Stadt Zug",
+    "kanton": "Zug",
+    "einwohnerdienste": {
+      "telefon": "058 728 90 91",
+      "email": "info.afm@zg.ch",
+      "url": "https://www.stadtzu"
+    },
+    "schulamt": {
+      "telefon": "058 728 94 20",
+      "email": "stadtschulen@stadtzug.ch",
+      "url": "https://www.baar.ch"
+    }
+  },
+  {
+    "name": "Gemeinde Baar",
+    "kanton": "Zug",
+    "einwohnerdienste": {
+      "telefon": "041 769 01 11",
+      "email": "info.afm@zg.ch",
+      "url": "https://www.baar.ch"
+    },
+    "schulamt": {
+      "telefon": "041 769 03 30",
+      "email": "schulen-bildung@baar.ch",
+      "url": "https://www.cham.c"
+    }
+  },
+  {
+    "name": "Gemeinde Cham",
+    "kanton": "Zug",
+    "einwohnerdienste": {
+      "telefon": "041 723 87 30",
+      "email": "bildung@cham.ch",
+      "url": "https://www.cham.c"
+    },
+    "schulamt": {
+      "telefon": "041 723 88 30",
+      "email": "bildung@cham.ch"
+    }
+  },
+  {
+    "name": "Stadt Bern",
+    "kanton": "Bern",
+    "einwohnerdienste": {
+      "telefon": "+41 31 321 64 60",
+      "email": "migrazione@ti.ch",
+      "url": "https://www.bern.c"
+    },
+    "schulamt": {
+      "telefon": "+41 31 321 64 60",
+      "email": "migrazione@ti.ch",
+      "url": "https://www.bern.c"
+    }
+  },
+  {
+    "name": "Città di Lugano",
+    "kanton": "Bern",
+    "einwohnerdienste": {
+      "telefon": "+41 58 866 67 36",
+      "email": "abitanti@lugano.ch",
+      "url": "https://www.lugano."
+    },
+    "schulamt": {
+      "telefon": "+41 58 866 90 00",
+      "email": "migrazione@ti.ch",
+      "url": "https://www.lugano."
+    }
+  },
+  {
+    "name": "Comune di Paradiso",
+    "kanton": "Bern",
+    "einwohnerdienste": {
+      "telefon": "091 985 04 25",
+      "email": "uca@paradiso.ch",
+      "url": "https://paradiso.ch/"
+    },
+    "schulamt": {
+      "telefon": "+41 91 985 04 11"
+    }
+  },
+  {
+    "name": "Gemeinde Freienbach",
+    "kanton": "Schwyz",
+    "einwohnerdienste": {
+      "telefon": "055 416 91 11",
+      "email": "einwohneramt@freienbach.ch",
+      "url": "https://www.freienb"
+    },
+    "schulamt": {
+      "telefon": "055 416 92 16",
+      "email": "einwohneramt@freienbach.ch",
+      "url": "https://gemeindesc"
+    }
+  },
+  {
+    "name": "Gemeinde Wollerau",
+    "kanton": "Schwyz",
+    "einwohnerdienste": {
+      "telefon": "043 888 12 88",
+      "email": "info@wollerau.ch",
+      "url": "https://www.wollera"
+    },
+    "schulamt": {
+      "telefon": "044 787 03 55",
+      "email": "info@wollerau.ch",
+      "url": "https://www.schule"
+    }
+  },
+  {
+    "name": "Gemeinde Reinach (BL)",
+    "kanton": "Basel-Landschaft",
+    "einwohnerdienste": {
+      "telefon": "061 511 60 00",
+      "email": "primarstufe@reinach-bl.ch",
+      "url": "https://www.allschw"
+    },
+    "schulamt": {
+      "telefon": "+41 61 511 69 00",
+      "email": "primarstufe@reinach-bl.ch",
+      "url": "https://www.allschw"
+    }
+  },
+  {
+    "name": "Gemeinde Allschwil",
+    "kanton": "Basel-Landschaft",
+    "einwohnerdienste": {
+      "telefon": "061 486 26 00",
+      "email": "amib@bl.ch",
+      "url": "https://www.allschw"
+    },
+    "schulamt": {
+      "telefon": "061 486 27 90",
+      "email": "amib@bl.ch",
+      "url": "https://primarschul"
+    }
+  }
+]

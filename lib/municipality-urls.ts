@@ -341,6 +341,10 @@ export const MUNICIPALITY_URL_MAP: Record<string, { base: string; registration?:
     base: 'https://www.mellingen.ch',
     registration: 'https://www.mellingen.ch/verwaltung/einwohnerdienste/anmeldung'
   },
+  'allschwil': {
+    base: 'https://www.allschwil.ch',
+    registration: 'https://www.allschwil.ch/de/verwaltung/oeffnungszeiten/'
+  },
 }
 
 /**

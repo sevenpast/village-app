@@ -269,7 +269,7 @@ export class DocumentProcessor {
       throw new Error('Gemini API key not configured')
     }
 
-    const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+    const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash-001' })
 
     // Enhanced prompt with Swiss document context - optimized for better classification
     const prompt = `

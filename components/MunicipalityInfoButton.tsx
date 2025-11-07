@@ -55,6 +55,11 @@ export function MunicipalityInfoButton({
       }
 
       const result = await response.json()
+      console.log('Municipality data received:', {
+        opening_hours: result.opening_hours,
+        has_opening_hours: result.opening_hours && Object.keys(result.opening_hours).length > 0,
+        full_data: result
+      })
       setData(result)
       setIsOpen(true)
 
@@ -154,12 +159,12 @@ export function MunicipalityInfoButton({
             {data && !error && (
               <div className="p-6 space-y-6">
                 {/* Opening Hours */}
-                {data.opening_hours && Object.keys(data.opening_hours).length > 0 && (
-                  <div>
-                    <h4 className="font-semibold mb-3 flex items-center gap-2" style={{ color: '#2D5016' }}>
-                      <Clock className="w-5 h-5" />
-                      Öffnungszeiten
-                    </h4>
+                <div>
+                  <h4 className="font-semibold mb-3 flex items-center gap-2" style={{ color: '#2D5016' }}>
+                    <Clock className="w-5 h-5" />
+                    Öffnungszeiten
+                  </h4>
+                  {data.opening_hours && Object.keys(data.opening_hours).length > 0 ? (
                     <div className="space-y-2">
                       {Object.entries(data.opening_hours).map(([day, hours]) => (
                         <div key={day} className="flex justify-between text-sm">
@@ -168,8 +173,12 @@ export function MunicipalityInfoButton({
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div className="text-sm text-gray-500 italic">
+                      Öffnungszeiten nicht verfügbar. Bitte besuche die offizielle Website oder rufe die Gemeinde direkt an.
+                    </div>
+                  )}
+                </div>
 
                 {/* Contact Info */}
                 {(data.phone || data.email || data.address) && (
