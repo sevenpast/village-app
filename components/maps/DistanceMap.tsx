@@ -1,13 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-
-// Leaflet types
-declare global {
-  interface Window {
-    L: any
-  }
-}
+import 'leaflet/dist/leaflet.css'
 
 export default function DistanceMap() {
   const [origin, setOrigin] = useState('')
@@ -20,78 +14,61 @@ export default function DistanceMap() {
   const mapInstanceRef = useRef<any>(null)
   const routeLayerRef = useRef<any>(null)
   const markersRef = useRef<any[]>([])
-  const [mapLoaded, setMapLoaded] = useState(false)
+  const leafletRef = useRef<typeof import('leaflet') | null>(null)
 
-  // Load Leaflet CSS and JS
+  // Load Leaflet dynamically (avoids relying on external CDN)
   useEffect(() => {
-    // Load Leaflet CSS
-    const linkId = 'leaflet-css'
-    if (!document.getElementById(linkId)) {
-      const link = document.createElement('link')
-      link.id = linkId
-      link.rel = 'stylesheet'
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
-      link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY='
-      link.crossOrigin = ''
-      document.head.appendChild(link)
-    }
+    let isMounted = true
 
-    // Load Leaflet JS
-    const scriptId = 'leaflet-js'
-    if (document.getElementById(scriptId)) {
-      if (window.L) {
-        initializeMap()
-        return
+    const loadLeaflet = async () => {
+      try {
+        const L = await import('leaflet')
+        if (!isMounted) {
+          return
+        }
+        leafletRef.current = L
+        initializeMap(L)
+      } catch (err) {
+        console.error('Leaflet load error:', err)
+        setError('Failed to load map library. Please refresh the page and try again.')
       }
     }
 
-    const script = document.createElement('script')
-    script.id = scriptId
-    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-    script.integrity = 'sha256-20nQCchN9ahp8HyzILr3lLmkfTCXYlKBXuifE5pgQcQ='
-    script.crossOrigin = ''
-    script.async = true
-
-    script.onload = () => {
-      initializeMap()
-    }
-
-    script.onerror = () => {
-      setError('Failed to load map library. Please check your internet connection.')
-    }
-
-    document.head.appendChild(script)
+    loadLeaflet()
 
     return () => {
+      isMounted = false
       // Cleanup
-      if (markersRef.current.length > 0) {
-        markersRef.current.forEach(marker => {
-          if (mapInstanceRef.current) {
-            mapInstanceRef.current.removeLayer(marker)
-          }
-        })
-        markersRef.current = []
-      }
+      markersRef.current.forEach(marker => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.removeLayer(marker)
+        }
+      })
+      markersRef.current = []
+
       if (routeLayerRef.current && mapInstanceRef.current) {
         mapInstanceRef.current.removeLayer(routeLayerRef.current)
+        routeLayerRef.current = null
+      }
+
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove()
+        mapInstanceRef.current = null
       }
     }
   }, [])
 
-  const initializeMap = () => {
-    if (!mapRef.current || !window.L) return
+  const initializeMap = (L: typeof import('leaflet')) => {
+    if (!mapRef.current || mapInstanceRef.current) return
 
-    // Initialize map centered on Switzerland
-    const map = window.L.map(mapRef.current).setView([46.8182, 8.2275], 7)
+    const map = L.map(mapRef.current).setView([46.8182, 8.2275], 7)
 
-    // Add OpenStreetMap tile layer
-    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors',
       maxZoom: 19,
     }).addTo(map)
 
     mapInstanceRef.current = map
-    setMapLoaded(true)
   }
 
   const geocodeAddress = async (address: string): Promise<[number, number] | null> => {
@@ -127,7 +104,9 @@ export default function DistanceMap() {
       return
     }
 
-    if (!mapInstanceRef.current || !window.L) {
+    const L = leafletRef.current
+
+    if (!mapInstanceRef.current || !L) {
       setError('Map is not loaded yet. Please wait a moment.')
       return
     }
@@ -166,7 +145,7 @@ export default function DistanceMap() {
       }
 
       // Add markers
-      const originIcon = window.L.icon({
+      const originIcon = L.icon({
         iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
         shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
         iconSize: [25, 41],
@@ -175,7 +154,7 @@ export default function DistanceMap() {
         shadowSize: [41, 41]
       })
 
-      const destIcon = window.L.icon({
+      const destIcon = L.icon({
         iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
         shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
         iconSize: [25, 41],
@@ -184,9 +163,9 @@ export default function DistanceMap() {
         shadowSize: [41, 41]
       })
 
-      const originMarker = window.L.marker(originCoords, { icon: originIcon }).addTo(mapInstanceRef.current)
+      const originMarker = L.marker(originCoords, { icon: originIcon }).addTo(mapInstanceRef.current)
         .bindPopup(`<b>From:</b> ${origin}`).openPopup()
-      const destMarker = window.L.marker(destCoords, { icon: destIcon }).addTo(mapInstanceRef.current)
+      const destMarker = L.marker(destCoords, { icon: destIcon }).addTo(mapInstanceRef.current)
         .bindPopup(`<b>To:</b> ${destination}`)
 
       markersRef.current = [originMarker, destMarker]
@@ -209,7 +188,7 @@ export default function DistanceMap() {
 
       // Draw route on map as a polyline
       const routeCoordinates = routeData.routes[0].geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]])
-      const routePolyline = window.L.polyline(routeCoordinates, {
+      const routePolyline = L.polyline(routeCoordinates, {
         color: '#2D5016',
         weight: 5,
         opacity: 0.8,
@@ -219,7 +198,7 @@ export default function DistanceMap() {
       routeLayerRef.current = routePolyline
 
       // Fit map to show entire route
-      const bounds = window.L.latLngBounds(routeCoordinates)
+      const bounds = L.latLngBounds(routeCoordinates)
       mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50] })
 
       // Calculate distance and duration
