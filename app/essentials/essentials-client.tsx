@@ -10,6 +10,9 @@ import { Vault, Archive, Mail } from 'lucide-react'
 import { getDocumentTypeById, getDocumentIdByRequirement } from '@/lib/utils/document-id-mapping'
 import { documentFulfillsRequirement } from '@/lib/utils/requirement-mapping' // Requirement-based matching
 import { createEMLWithMultipleDocuments } from '@/lib/utils/eml-generator'
+import HousingVault from '@/components/vault/HousingVault'
+import DistanceMap from '@/components/maps/DistanceMap'
+import { createClient } from '@/lib/supabase/client'
 
 interface EssentialsClientProps {
   firstName: string
@@ -59,9 +62,28 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
   const [uploadTargetDoc, setUploadTargetDoc] = useState<string | null>(null) // Which document type to upload
   const [showAlertsModal, setShowAlertsModal] = useState(false) // Show alerts modal
   const [allReminders, setAllReminders] = useState<Array<{taskId: number, taskTitle: string, scheduledAt: Date, days: number}>>([]) // All active reminders
+  const [userId, setUserId] = useState<string | null>(null) // User ID for HousingVault
+  const [housingExpanded, setHousingExpanded] = useState<boolean>(false) // Toggle for Housing section
+  const [mapsExpanded, setMapsExpanded] = useState<boolean>(false) // Toggle for Maps section
   
   // Debounce timer ref for reminder changes
   const reminderDebounceRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Get user ID on mount
+  useEffect(() => {
+    const getUserId = async () => {
+      try {
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          setUserId(user.id)
+        }
+      } catch (error) {
+        console.error('Error getting user ID:', error)
+      }
+    }
+    getUserId()
+  }, [])
   
   // Get current task's done status
   const isDone = selectedTask ? taskStatus[selectedTask] || false : false
@@ -1105,6 +1127,9 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
       if (response.ok) {
         const info = await response.json()
         console.log('Municipality info loaded:', info)
+        console.log('Opening hours:', info.opening_hours)
+        console.log('Opening hours keys:', info.opening_hours ? Object.keys(info.opening_hours) : 'null')
+        console.log('Opening hours entries:', info.opening_hours ? Object.entries(info.opening_hours) : 'null')
         setMunicipalityInfo(info)
       } else {
         const errorData = await response.json().catch(() => ({}))
@@ -1259,7 +1284,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                   className="text-sm leading-relaxed pt-2"
                   style={{ color: '#374151' }}
                 >
-                  {formatAnswerText(faq.answer)}
+                  {formatAnswerText(faq.answer, { handleNextStep: true, handleSeeTask: true })}
                 </div>
               </div>
             )}
@@ -1319,7 +1344,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                       className="text-sm leading-relaxed pt-2"
                       style={{ color: '#374151' }}
                     >
-                      {formatAnswerText(faq.answer)}
+                      {formatAnswerText(faq.answer, { handleNextStep: true, handleSeeTask: true })}
                     </div>
                     
                     {/* Show opening hours after "Where do I go to register?" */}
@@ -1797,24 +1822,30 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           })
           processedLine = <>{parts}</>
         } else if (line.includes('(see task')) {
-          // Handle (see task X) links
-          const parts = line.split('(see task 2)').map((part: string, partIndex: number) => {
-            if (partIndex === 0) return part
-            return (
-              <span key={partIndex}>
-                (
-                <button
-                  onClick={() => handleTaskClick(2)}
-                  className="text-blue-600 hover:text-blue-800 underline"
-                >
-                  see task 2
-                </button>
-                )
-                {part}
-              </span>
-            )
-          })
-          processedLine = <>{parts}</>
+          // Handle (see task X) links - dynamically extract task number
+          const taskMatch = line.match(/\(see task (\d+)\)/)
+          if (taskMatch) {
+            const taskNumber = parseInt(taskMatch[1])
+            const parts = line.split(`(see task ${taskNumber})`).map((part: string, partIndex: number) => {
+              if (partIndex === 0) return part
+              return (
+                <span key={partIndex}>
+                  (
+                  <button
+                    onClick={() => handleTaskClick(taskNumber)}
+                    className="text-blue-600 hover:text-blue-800 underline"
+                  >
+                    see task {taskNumber}
+                  </button>
+                  )
+                  {part}
+                </span>
+              )
+            })
+            processedLine = <>{parts}</>
+          } else {
+            processedLine = line
+          }
         } else if (line.includes('[change profile]')) {
           // Handle [change profile] links
           const parts = line.split('[change profile]').map((part: string, partIndex: number) => {
@@ -2205,155 +2236,6 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
             </a>
             {' '}of the school administration.
           </p>
-          
-          {/* School Authority Information */}
-          {taskData.user_data?.municipality_name && (
-            <div className="mt-4 p-4 bg-gray-50 rounded-lg border" style={{ borderColor: '#E5E7EB' }}>
-              <h4 className="font-semibold text-sm mb-3" style={{ color: '#2D5016' }}>
-                {schoolInfo?.authority?.authority_name || `${taskData.user_data.municipality_name} - School Authority`}
-              </h4>
-              
-              {loadingSchool ? (
-                <p className="text-xs text-gray-500">Loading school registration information...</p>
-              ) : schoolInfo ? (
-                <>
-                  {/* Authority Type Badge */}
-                  {schoolInfo.authority?.authority_type === 'schulkreis' && schoolInfo.authority?.school_district && (
-                    <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
-                      <p className="text-blue-900">
-                        <strong>School District:</strong> {schoolInfo.authority.school_district.name}
-                      </p>
-                      <p className="text-blue-700 mt-1">
-                        Based on your address in postal code {taskData.user_data?.plz || 'your area'}
-                      </p>
-                    </div>
-                  )}
-                  
-                  {/* Contact Info */}
-                  {(schoolInfo.authority?.phone || schoolInfo.authority?.email || schoolInfo.authority?.address) && (
-                    <div className="mb-3 text-xs">
-                      {schoolInfo.authority.address && (
-                        <p className="text-gray-700 mb-1">
-                          <strong>Address:</strong> {schoolInfo.authority.address}
-                        </p>
-                      )}
-                      {schoolInfo.authority.phone && (
-                        <p className="text-gray-700 mb-1">
-                          <strong>Phone:</strong>{' '}
-                          <a href={`tel:${schoolInfo.authority.phone}`} className="text-blue-600 hover:text-blue-800 underline">
-                            {schoolInfo.authority.phone}
-                          </a>
-                        </p>
-                      )}
-                      {schoolInfo.authority.email && (
-                        <p className="text-gray-700 mb-1">
-                          <strong>Email:</strong>{' '}
-                          <a href={`mailto:${schoolInfo.authority.email}`} className="text-blue-600 hover:text-blue-800 underline">
-                            {schoolInfo.authority.email}
-                          </a>
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  
-                  {/* Age-Specific Guidance */}
-                  {schoolInfo.guidance && (
-                    <div className={`mb-3 p-3 rounded text-xs ${
-                      schoolInfo.guidance.level === 'too_young' ? 'bg-yellow-50 border border-yellow-200' :
-                      schoolInfo.guidance.level === 'kindergarten' || schoolInfo.guidance.level === 'primary' ? 'bg-green-50 border border-green-200' :
-                      'bg-blue-50 border border-blue-200'
-                    }`}>
-                      <p className="font-medium mb-1" style={{ color: '#374151' }}>
-                        {schoolInfo.guidance.message}
-                      </p>
-                      <p className="text-gray-700">{schoolInfo.guidance.action}</p>
-                      {schoolInfo.guidance.age_requirement && (
-                        <p className="text-gray-600 mt-1">
-                          <strong>Age requirement:</strong> {schoolInfo.guidance.age_requirement}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  
-                  {/* Registration Process */}
-                  {schoolInfo.registration_info?.registration_process && (
-                    <div className="mb-3 text-xs">
-                      <p className="font-medium mb-2" style={{ color: '#374151' }}>Registration Process:</p>
-                      <p className="text-gray-700 whitespace-pre-line">{schoolInfo.registration_info.registration_process}</p>
-                    </div>
-                  )}
-                  
-                  {/* Required Documents (if different from default list) */}
-                  {schoolInfo.registration_info?.required_documents && 
-                   schoolInfo.registration_info.required_documents.length > 0 && (
-                    <div className="mb-3 text-xs">
-                      <p className="font-medium mb-2" style={{ color: '#374151' }}>Additional Required Documents:</p>
-                      <ul className="list-disc list-inside space-y-1 text-gray-700">
-                        {schoolInfo.registration_info.required_documents.map((doc: string, i: number) => (
-                          <li key={i}>{doc}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  
-                  {/* Registration Deadline */}
-                  {schoolInfo.registration_info?.registration_deadline && (
-                    <div className="mb-3 p-2 bg-orange-50 border border-orange-200 rounded text-xs">
-                      <p className="text-orange-900">
-                        <strong>Deadline:</strong> {schoolInfo.registration_info.registration_deadline}
-                      </p>
-                    </div>
-                  )}
-                  
-                  {/* Registration Form */}
-                  {schoolInfo.registration_info?.registration_form_pdf_url && (
-                    <div className="mb-3">
-                      <a
-                        href={schoolInfo.registration_info.registration_form_pdf_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-blue-600 hover:text-blue-800 underline"
-                      >
-                        📄 Download Registration Form (PDF) →
-                      </a>
-                    </div>
-                  )}
-                  
-                  {/* Special Notes */}
-                  {schoolInfo.registration_info?.special_notes && (
-                    <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-900">
-                      ⚠️ {schoolInfo.registration_info.special_notes}
-                    </div>
-                  )}
-                  
-                  {/* Official Website Link */}
-                  {schoolInfo.authority?.website_url && (
-                    <p className="text-xs mt-2">
-                      <a
-                        href={schoolInfo.authority.website_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800 underline"
-                      >
-                        Visit official school authority website →
-                      </a>
-                    </p>
-                  )}
-                  
-                  {schoolInfo.cached && (
-                    <p className="text-xs mt-2 italic" style={{ color: '#9CA3AF' }}>
-                      (Information cached • Last updated: {new Date().toLocaleDateString('de-CH')})
-                    </p>
-                  )}
-                </>
-              ) : (
-                <p className="text-xs text-gray-500">
-                  School registration information not available. Please check the official website.
-                </p>
-              )}
-            </div>
-          )}
-          
           <p className="leading-relaxed mt-4">
             Use our{' '}
             <a
@@ -2579,25 +2461,109 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                   boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
                 }}
               >
-                {/* 1. Zeile: Titel "Goal" */}
-                <h2 className="text-xl font-bold mb-4" style={{ color: '#2D5016' }}>
-                  Goal
-                </h2>
+                {/* Task 3: Three titles in a row, full-width content below */}
+                {selectedTask === 3 ? (
+                  <div className="mb-6">
+                    {/* Titles row - 3 columns */}
+                    <div className="grid grid-cols-3 gap-6 mb-4">
+                      {/* Title 1: Goal */}
+                      <div>
+                        <h2 className="text-xl font-bold mb-4" style={{ color: '#2D5016' }}>
+                          Goal
+                        </h2>
+                      </div>
 
-                {/* 2. Zeile: Box mit Goal */}
-                <div
-                  className="rounded-lg p-4 min-h-[120px] mb-6"
-                  style={{
-                    backgroundColor: '#F3F4F6',
-                    border: '1px solid #E5E7EB',
-                  }}
-                >
-                  <p className="text-base leading-relaxed" style={{ color: '#374151' }}>
-                    {goal || taskData.goal || 'Loading...'}
-                  </p>
-                </div>
+                      {/* Title 2: Housing - Collapsible */}
+                      <div>
+                        <button
+                          onClick={() => {
+                            setHousingExpanded(!housingExpanded)
+                            if (!housingExpanded) {
+                              setMapsExpanded(false) // Close Maps if Housing opens
+                            }
+                          }}
+                          className="w-full flex items-center mb-4 cursor-pointer hover:opacity-80 transition-opacity"
+                        >
+                          <h2 className="text-xl font-bold" style={{ color: '#2D5016' }}>
+                            Housing
+                          </h2>
+                        </button>
+                      </div>
 
-                {/* 3. Zeile: Checkbox "I have done this" + "Remind me in X days" */}
+                      {/* Title 3: Maps - Collapsible */}
+                      <div>
+                        <button
+                          onClick={() => {
+                            setMapsExpanded(!mapsExpanded)
+                            if (!mapsExpanded) {
+                              setHousingExpanded(false) // Close Housing if Maps opens
+                            }
+                          }}
+                          className="w-full flex items-center mb-4 cursor-pointer hover:opacity-80 transition-opacity"
+                        >
+                          <h2 className="text-xl font-bold" style={{ color: '#2D5016' }}>
+                            Maps
+                          </h2>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Full-width content sections - Only show if nothing is expanded */}
+                    {!housingExpanded && !mapsExpanded && (
+                      <>
+                        {/* Goal Content - Full width */}
+                        <div
+                          className="rounded-lg p-4 min-h-[120px] mb-6"
+                          style={{
+                            backgroundColor: '#F3F4F6',
+                            border: '1px solid #E5E7EB',
+                          }}
+                        >
+                          <p className="text-base leading-relaxed" style={{ color: '#374151' }}>
+                            {goal || taskData.goal || 'Loading...'}
+                          </p>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Housing Content - Full width - Only Housing */}
+                    {housingExpanded && userId && (
+                      <div className="mb-6">
+                        <HousingVault userId={userId} />
+                      </div>
+                    )}
+
+                    {/* Maps Content - Full width - Only Maps */}
+                    {mapsExpanded && (
+                      <div className="mb-6">
+                        <DistanceMap />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    {/* 1. Zeile: Titel "Goal" */}
+                    <h2 className="text-xl font-bold mb-4" style={{ color: '#2D5016' }}>
+                      Goal
+                    </h2>
+
+                    {/* 2. Zeile: Box mit Goal */}
+                    <div
+                      className="rounded-lg p-4 min-h-[120px] mb-6"
+                      style={{
+                        backgroundColor: '#F3F4F6',
+                        border: '1px solid #E5E7EB',
+                      }}
+                    >
+                      <p className="text-base leading-relaxed" style={{ color: '#374151' }}>
+                        {goal || taskData.goal || 'Loading...'}
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                {/* 3. Zeile: Checkbox "I have done this" + "Remind me in X days" - Hide if Housing or Maps is expanded in Task 3 */}
+                {!(selectedTask === 3 && (housingExpanded || mapsExpanded)) && (
                 <div className="flex items-center gap-6 mb-6 pb-6 border-b" style={{ borderColor: '#E5E7EB' }}>
                   {/* I have done this - Checkbox */}
                   <button
@@ -2627,7 +2593,14 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                             <polyline points="20 6 9 17 4 12" />
                           </svg>
                         </div>
-                        <span>I have done this.</span>
+                        <div className="flex flex-col">
+                          <span>I have done this.</span>
+                          {selectedTask && completedDates[selectedTask] && (
+                            <span className="text-xs mt-1" style={{ color: '#6B7280' }}>
+                              ✓ Completed on {new Date(completedDates[selectedTask]).toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                            </span>
+                          )}
+                        </div>
                       </>
                     ) : (
                       <>
@@ -2685,8 +2658,11 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                     </span>
                   </div>
                 </div>
+                )}
 
-                {/* 4. Zeile: Titel "Resources" + Search Box */}
+                {/* 4. Zeile: Titel "Resources" + Search Box - Hide if Housing or Maps is expanded in Task 3 */}
+                {!(selectedTask === 3 && (housingExpanded || mapsExpanded)) && (
+                <>
                 <div className="flex items-center gap-4 mb-4">
                   <h2 className="text-xl font-bold" style={{ color: '#2D5016' }}>
                     Resources
@@ -2801,6 +2777,8 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
                     </>
                   )}
                 </div>
+                </>
+                )}
               </div>
             </div>
           ) : (
@@ -2971,6 +2949,7 @@ export default function EssentialsClient({ firstName, avatarUrl }: EssentialsCli
           </div>
         </div>
       )}
+
 
     </div>
   )
