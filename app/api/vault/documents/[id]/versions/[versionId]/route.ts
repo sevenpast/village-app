@@ -38,6 +38,7 @@ export async function GET(
     }
 
     // Get specific version
+    // Check both direct document_id match and linked versions (via metadata)
     const { data: version, error } = await supabase
       .from('document_versions')
       .select(`
@@ -48,10 +49,11 @@ export async function GET(
         uploaded_by,
         uploaded_at,
         change_summary,
-        metadata
+        metadata,
+        document_id
       `)
       .eq('id', versionId)
-      .eq('document_id', documentId)
+      .or(`document_id.eq.${documentId},metadata->>new_document_id.eq.${documentId},metadata->>parent_document_id.eq.${documentId}`)
       .single()
 
     if (error || !version) {
@@ -59,6 +61,41 @@ export async function GET(
         { error: 'Version not found', details: error?.message },
         { status: 404 }
       )
+    }
+
+    // Verify that the user owns either the version's document or the linked document
+    const versionDocumentId = version.document_id
+    const linkedDocumentId = version.metadata?.new_document_id || version.metadata?.parent_document_id
+    
+    const { data: versionDoc } = await supabase
+      .from('documents')
+      .select('id, user_id')
+      .eq('id', versionDocumentId)
+      .eq('user_id', user.id)
+      .single()
+
+    if (!versionDoc) {
+      // Check if linked document belongs to user
+      if (linkedDocumentId) {
+        const { data: linkedDoc } = await supabase
+          .from('documents')
+          .select('id, user_id')
+          .eq('id', linkedDocumentId)
+          .eq('user_id', user.id)
+          .single()
+        
+        if (!linkedDoc) {
+          return NextResponse.json(
+            { error: 'Version not found or access denied' },
+            { status: 404 }
+          )
+        }
+      } else {
+        return NextResponse.json(
+          { error: 'Version not found or access denied' },
+          { status: 404 }
+        )
+      }
     }
 
     const formattedVersion = {
