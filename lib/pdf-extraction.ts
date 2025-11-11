@@ -3,7 +3,7 @@
  * Extracts text content from PDF documents for Chat with Documents feature
  */
 
-import pdfParse from 'pdf-parse'
+// pdf-parse doesn't have a default export in ESM, use createRequire for CommonJS compatibility
 
 export interface PDFExtractionResult {
   text: string
@@ -33,6 +33,33 @@ export interface PageContent {
  */
 export async function extractTextFromPDF(buffer: Buffer): Promise<PDFExtractionResult> {
   try {
+    // Dynamic import for pdf-parse (server-side only)
+    let pdfParse: any
+    
+    try {
+      // Try ESM import first
+      const pdfParseModule = await import('pdf-parse')
+      if (typeof pdfParseModule.default === 'function') {
+        pdfParse = pdfParseModule.default
+      } else if (typeof pdfParseModule === 'function') {
+        pdfParse = pdfParseModule
+      } else {
+        throw new Error('pdf-parse is not a function')
+      }
+    } catch (importError) {
+      // Fallback to CommonJS require
+      try {
+        const { createRequire } = await import('module')
+        const require = createRequire(import.meta.url)
+        pdfParse = require('pdf-parse')
+        if (typeof pdfParse !== 'function') {
+          throw new Error('pdf-parse is not a function')
+        }
+      } catch (requireError) {
+        throw new Error(`Could not import pdf-parse: ${requireError instanceof Error ? requireError.message : String(requireError)}`)
+      }
+    }
+
     const data = await pdfParse(buffer)
 
     // Split text by page breaks if available, otherwise estimate pages
