@@ -142,3 +142,21 @@ FROM municipality_master_data
 WHERE bfs_nummer IN (261, 6458, 2701, 5586, 351, 5192, 1711, 1061, 6454, 3203, 230, 2771)
 ORDER BY bfs_nummer;
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

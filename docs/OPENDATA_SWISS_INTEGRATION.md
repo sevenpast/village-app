@@ -150,3 +150,21 @@ console.log(`📥 Attempting to download resource...`)
 - [CKAN API Dokumentation](https://docs.ckan.org/en/2.9/api/)
 - [BFS Gemeinde-Verzeichnis](https://www.bfs.admin.ch/bfs/de/home/statistiken/kataloge-datenbanken/daten.assetdetail.32036842.html)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

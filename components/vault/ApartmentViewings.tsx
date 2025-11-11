@@ -22,6 +22,19 @@ interface ApartmentViewing {
   is_favorite: boolean
   created_at: string
   photos?: ViewingPhoto[]
+  documents?: ViewingDocument[]
+  document_count?: number
+}
+
+interface ViewingDocument {
+  id: string
+  file_name: string
+  mime_type: string
+  file_size: number
+  document_type: string | null
+  tags: string[] | null
+  created_at: string
+  download_url: string
 }
 
 interface ViewingPhoto {
@@ -43,6 +56,10 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
   const [editingViewing, setEditingViewing] = useState<ApartmentViewing | null>(null)
   const [selectedViewing, setSelectedViewing] = useState<ApartmentViewing | null>(null)
   const [uploadingPhotos, setUploadingPhotos] = useState(false)
+  const [showAttachDocumentsModal, setShowAttachDocumentsModal] = useState(false)
+  const [availableDocuments, setAvailableDocuments] = useState<ViewingDocument[]>([])
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set())
+  const [attachingDocuments, setAttachingDocuments] = useState(false)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -75,6 +92,119 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
     } finally {
       setLoading(false)
     }
+  }
+
+  const loadViewingDetails = async (viewingId: string) => {
+    try {
+      const response = await fetch(`/api/housing/viewings/${viewingId}`)
+      if (response.ok) {
+        const data = await response.json()
+        // Update the viewing in the list with documents
+        setViewings(prev => prev.map(v => v.id === viewingId ? { ...v, ...data.viewing } : v))
+        if (selectedViewing?.id === viewingId) {
+          setSelectedViewing(data.viewing)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load viewing details:', error)
+    }
+  }
+
+  const loadAvailableDocuments = async () => {
+    try {
+      const response = await fetch('/api/vault/list')
+      if (response.ok) {
+        const data = await response.json()
+        setAvailableDocuments(data.documents || [])
+      }
+    } catch (error) {
+      console.error('Failed to load documents:', error)
+      alert(`Failed to load documents: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  const handleAttachDocuments = async () => {
+    if (!selectedViewing || selectedDocumentIds.size === 0) {
+      alert('Please select documents to attach')
+      return
+    }
+
+    setAttachingDocuments(true)
+    try {
+      const response = await fetch(`/api/housing/viewings/${selectedViewing.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          document_ids: Array.from(selectedDocumentIds),
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to attach documents')
+      }
+
+      // Reload viewing details
+      await loadViewingDetails(selectedViewing.id)
+      setShowAttachDocumentsModal(false)
+      setSelectedDocumentIds(new Set())
+      alert('Documents attached successfully!')
+    } catch (error) {
+      console.error('Error attaching documents:', error)
+      alert(`Failed to attach documents: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setAttachingDocuments(false)
+    }
+  }
+
+  const handleRemoveDocument = async (documentId: string) => {
+    if (!selectedViewing) return
+
+    if (!confirm('Remove this document from the viewing?')) {
+      return
+    }
+
+    try {
+      // Get current document IDs and remove the one to delete
+      const currentDocIds = (selectedViewing.documents || [])
+        .map(doc => doc.id)
+        .filter(id => id !== documentId)
+
+      const response = await fetch(`/api/housing/viewings/${selectedViewing.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          document_ids: currentDocIds,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to remove document')
+      }
+
+      // Reload viewing details
+      await loadViewingDetails(selectedViewing.id)
+      alert('Document removed successfully!')
+    } catch (error) {
+      console.error('Error removing document:', error)
+      alert(`Failed to remove document: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  const handleOpenAttachDocuments = async () => {
+    await loadAvailableDocuments()
+    // Pre-select documents that are already attached
+    if (selectedViewing?.documents) {
+      setSelectedDocumentIds(new Set(selectedViewing.documents.map(doc => doc.id)))
+    } else {
+      setSelectedDocumentIds(new Set())
+    }
+    setShowAttachDocumentsModal(true)
   }
 
   const handleCreate = () => {
@@ -338,7 +468,10 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
               key={viewing.id}
               className="bg-white rounded-lg border p-4 cursor-pointer hover:shadow-md transition-shadow"
               style={{ borderColor: '#E5E7EB' }}
-              onClick={() => setSelectedViewing(viewing)}
+              onClick={async () => {
+                setSelectedViewing(viewing)
+                await loadViewingDetails(viewing.id)
+              }}
             >
               <div className="mb-2">
                 <h4 className="font-semibold text-lg" style={{ color: '#2D5016' }}>
@@ -658,6 +791,63 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
               </div>
 
               {/* Notes */}
+              {/* Documents Section */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-semibold" style={{ color: '#2D5016' }}>
+                    Documents ({selectedViewing.documents?.length || 0})
+                  </h4>
+                  <button
+                    onClick={handleOpenAttachDocuments}
+                    className="px-3 py-1.5 text-sm rounded transition-opacity hover:opacity-90"
+                    style={{ backgroundColor: '#2D5016', color: '#FFFFFF' }}
+                  >
+                    + Attach Documents
+                  </button>
+                </div>
+
+                {selectedViewing.documents && selectedViewing.documents.length > 0 ? (
+                  <div className="space-y-2">
+                    {selectedViewing.documents.map((doc) => (
+                      <div
+                        key={doc.id}
+                        className="flex items-center justify-between p-3 border rounded-lg"
+                        style={{ borderColor: '#E5E7EB' }}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">{doc.file_name}</p>
+                          {doc.document_type && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              {doc.document_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex gap-2 ml-4">
+                          {doc.download_url && (
+                            <a
+                              href={doc.download_url}
+                              download={doc.file_name}
+                              className="px-3 py-1 text-xs rounded border transition-colors hover:bg-gray-50"
+                              style={{ borderColor: '#2D5016', color: '#2D5016' }}
+                            >
+                              Download
+                            </a>
+                          )}
+                          <button
+                            onClick={() => handleRemoveDocument(doc.id)}
+                            className="px-3 py-1 text-xs rounded text-red-600 border border-red-600 transition-colors hover:bg-red-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 italic">No documents attached yet</p>
+                )}
+              </div>
+
               {selectedViewing.notes && (
                 <div>
                   <h4 className="font-semibold mb-2" style={{ color: '#2D5016' }}>Notes</h4>
@@ -685,6 +875,112 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
                   Close
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Attach Documents Modal */}
+      {showAttachDocumentsModal && selectedViewing && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowAttachDocumentsModal(false)}
+        >
+          <div
+            className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center p-6 border-b" style={{ borderColor: '#E5E7EB' }}>
+              <h3 className="text-xl font-bold" style={{ color: '#2D5016' }}>
+                Attach Documents from Vault
+              </h3>
+              <button
+                onClick={() => setShowAttachDocumentsModal(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              {availableDocuments.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">No documents available in vault</p>
+              ) : (
+                <>
+                  <div className="mb-4">
+                    <label className="flex items-center gap-2 mb-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedDocumentIds.size === availableDocuments.length && availableDocuments.length > 0}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedDocumentIds(new Set(availableDocuments.map(doc => doc.id)))
+                          } else {
+                            setSelectedDocumentIds(new Set())
+                          }
+                        }}
+                        className="rounded border-gray-300"
+                      />
+                      <span className="text-sm font-medium">
+                        {selectedDocumentIds.size === 0
+                          ? 'Select All'
+                          : `${selectedDocumentIds.size} of ${availableDocuments.length} selected`}
+                      </span>
+                    </label>
+                  </div>
+
+                  <div className="space-y-2 max-h-96 overflow-y-auto mb-4">
+                    {availableDocuments.map((doc) => (
+                      <label
+                        key={doc.id}
+                        className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50"
+                        style={{ borderColor: '#E5E7EB' }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedDocumentIds.has(doc.id)}
+                          onChange={(e) => {
+                            const newSelection = new Set(selectedDocumentIds)
+                            if (e.target.checked) {
+                              newSelection.add(doc.id)
+                            } else {
+                              newSelection.delete(doc.id)
+                            }
+                            setSelectedDocumentIds(newSelection)
+                          }}
+                          className="rounded border-gray-300"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">{doc.file_name}</p>
+                          {doc.document_type && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              {doc.document_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                            </p>
+                          )}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      onClick={() => setShowAttachDocumentsModal(false)}
+                      className="px-4 py-2 rounded border transition-colors hover:bg-gray-50"
+                      style={{ borderColor: '#2D5016', color: '#2D5016' }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleAttachDocuments}
+                      disabled={attachingDocuments || selectedDocumentIds.size === 0}
+                      className="px-4 py-2 rounded text-white transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{ backgroundColor: '#2D5016' }}
+                    >
+                      {attachingDocuments ? 'Attaching...' : `Attach ${selectedDocumentIds.size} Document${selectedDocumentIds.size !== 1 ? 's' : ''}`}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -6,9 +6,19 @@
 // Dynamic imports for server-side only (these packages don't work in client-side)
 // pdf-parse doesn't have a default export in ESM
 import type { PDFInfo } from 'pdf-parse'
+import { exec } from 'child_process'
+import { promisify } from 'util'
+import { writeFileSync, readFileSync, unlinkSync, existsSync } from 'fs'
+import { join } from 'path'
+import { tmpdir } from 'os'
+
+const execAsync = promisify(exec)
 
 // Google Generative AI (Gemini) - dynamic import to avoid client-side bundling
 let GoogleGenerativeAI: any = null
+
+// APDF.io Service for reliable PDF text extraction
+import { ApdfService } from '@/lib/services/apdf-service'
 
 export interface ProcessedDocument {
   extractedText: string
@@ -29,19 +39,129 @@ export class DocumentProcessor {
   private genAI: any = null
 
   constructor() {
-    // Initialize Gemini AI if API key is available (lazy load)
-    if (process.env.GEMINI_API_KEY) {
-      this.initGemini()
-    }
+    // Don't initialize Gemini in constructor - it's async
+    // Will be initialized lazily when needed
   }
 
   private async initGemini() {
-    if (!GoogleGenerativeAI) {
-      const module = await import('@google/generative-ai')
-      GoogleGenerativeAI = module.GoogleGenerativeAI
+    try {
+      if (!GoogleGenerativeAI) {
+        console.log('📦 Loading @google/generative-ai module...')
+        const module = await import('@google/generative-ai')
+        GoogleGenerativeAI = module.GoogleGenerativeAI
+        console.log('✅ GoogleGenerativeAI module loaded')
+      }
+      
+      if (process.env.GEMINI_API_KEY) {
+        const keyLength = process.env.GEMINI_API_KEY.length
+        console.log(`🔑 Initializing Gemini AI with API key (length: ${keyLength})...`)
+        this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+        console.log('✅ Gemini AI initialized successfully')
+      } else {
+        console.warn('⚠️ GEMINI_API_KEY not found in environment variables')
+      }
+    } catch (error) {
+      console.error('❌ Error initializing Gemini AI:', error)
+      console.error('❌ Error details:', error instanceof Error ? error.message : String(error))
     }
-    if (process.env.GEMINI_API_KEY) {
-      this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+  }
+
+  /**
+   * Convert PDF to image using ImageMagick directly (replaces pdf2pic)
+   * @param pdfBuffer PDF file buffer
+   * @param pageNumber Page number to convert (default: 1)
+   * @param options Conversion options (density, format, width, height)
+   * @returns Image buffer
+   */
+  private async convertPdfToImage(
+    pdfBuffer: Buffer,
+    pageNumber: number = 1,
+    options: {
+      density?: number
+      format?: 'png' | 'jpg'
+      width?: number
+      height?: number
+    } = {}
+  ): Promise<Buffer> {
+    const {
+      density = 300,
+      format = 'png',
+      width,
+      height,
+    } = options
+
+    const tempPdfPath = join(tmpdir(), `pdf-${Date.now()}-${Math.random().toString(36).substring(7)}.pdf`)
+    const tempImagePath = join(tmpdir(), `img-${Date.now()}-${Math.random().toString(36).substring(7)}.${format}`)
+
+    try {
+      // Write PDF to temp file
+      writeFileSync(tempPdfPath, pdfBuffer)
+
+      // Build ImageMagick command
+      // Use 'magick' command (ImageMagick 7) or fallback to 'convert' (ImageMagick 6)
+      let magickCmd = 'magick'
+      try {
+        await execAsync('which magick')
+      } catch {
+        // Fallback to 'convert' if 'magick' not found
+        magickCmd = 'convert'
+      }
+
+      // Build command arguments (escape paths properly)
+      const pdfInput = `${tempPdfPath}[${pageNumber - 1}]` // ImageMagick uses 0-based page indexing
+      const args: string[] = [
+        '-density', density.toString(),
+        pdfInput,
+      ]
+
+      // Add resize if specified
+      if (width || height) {
+        const resize = width && height ? `${width}x${height}` : width ? `${width}x` : `x${height}`
+        args.push('-resize', resize)
+      }
+
+      // Output format and path
+      args.push(tempImagePath)
+
+      // Build command with proper escaping for paths with spaces
+      const command = `${magickCmd} ${args.map(arg => {
+        // Escape spaces and special characters in paths
+        if (arg.includes(' ') || arg.includes('(') || arg.includes(')')) {
+          return `"${arg.replace(/"/g, '\\"')}"`
+        }
+        return arg
+      }).join(' ')}`
+
+      console.log(`🔄 Converting PDF page ${pageNumber} to ${format.toUpperCase()} using ImageMagick...`)
+      await execAsync(command, {
+        maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+        timeout: 30000, // 30 second timeout for conversion
+      })
+
+      // Read converted image
+      const imageBuffer = readFileSync(tempImagePath)
+      console.log(`✅ PDF converted to image: ${imageBuffer.length} bytes`)
+
+      // Cleanup temp files
+      try {
+        unlinkSync(tempPdfPath)
+        unlinkSync(tempImagePath)
+      } catch (cleanupError) {
+        console.warn('⚠️ Failed to cleanup temp files:', cleanupError)
+      }
+
+      return imageBuffer
+    } catch (error) {
+      // Cleanup temp files on error
+      try {
+        if (existsSync(tempPdfPath)) unlinkSync(tempPdfPath)
+        if (existsSync(tempImagePath)) unlinkSync(tempImagePath)
+      } catch (cleanupError) {
+        // Ignore cleanup errors
+      }
+
+      console.error('❌ ImageMagick PDF conversion error:', error)
+      throw error
     }
   }
 
@@ -60,40 +180,214 @@ export class DocumentProcessor {
 
     // Step 1: Try PDF text extraction first (fastest, free)
     if (mimeType === 'application/pdf') {
+      // Try pdftotext first (most reliable, uses system tool)
       try {
-        // Dynamic import for pdf-parse (server-side only)
-        const pdfParse = await import('pdf-parse')
-        const pdfData = await pdfParse.default(fileBuffer)
-        extractedText = pdfData.text
-        metadata = {
-          pages: pdfData.numpages,
-          hasText: extractedText.length > 50,
+        console.log('📄 Attempting PDF text extraction with pdftotext...')
+        const { exec } = await import('child_process')
+        const { promisify } = await import('util')
+        const execAsync = promisify(exec)
+        const { writeFileSync, unlinkSync } = await import('fs')
+        const { tmpdir } = await import('os')
+        const { join } = await import('path')
+        
+        // Write buffer to temp file
+        const tempPdfPath = join(tmpdir(), `pdf-${Date.now()}-${Math.random().toString(36).substring(7)}.pdf`)
+        writeFileSync(tempPdfPath, fileBuffer)
+        
+        try {
+          // Use pdftotext to extract text
+          const { stdout, stderr } = await execAsync(`pdftotext "${tempPdfPath}" -`, {
+            maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+            encoding: 'utf8'
+          })
+          
+          if (stderr && !stderr.includes('Error')) {
+            console.warn('⚠️ pdftotext warnings:', stderr)
+          }
+          
+          if (stdout && stdout.trim().length > 0) {
+            extractedText = stdout.trim()
+            metadata = {
+              pages: 0, // pdftotext doesn't provide page count easily
+              hasText: extractedText.length > 50,
+              source: 'pdftotext'
+            }
+            console.log(`✅ pdftotext extracted ${extractedText.length} characters`)
+            // Clean up temp file
+            try {
+              unlinkSync(tempPdfPath)
+            } catch (cleanupError) {
+              // Ignore cleanup errors
+            }
+            
+            // Skip pdf-parse if pdftotext succeeded
+            if (extractedText.length >= 50) {
+              // Continue to OCR step if needed
+            } else {
+              // Text is too short, will try OCR
+            }
+          } else {
+            throw new Error('pdftotext returned no text')
+          }
+        } catch (pdftotextError) {
+          console.warn('⚠️ pdftotext failed, trying pdf-parse:', pdftotextError instanceof Error ? pdftotextError.message : String(pdftotextError))
+          // Clean up temp file
+          try {
+            unlinkSync(tempPdfPath)
+          } catch (cleanupError) {
+            // Ignore cleanup errors
+          }
+          // Fall through to pdf-parse
         }
-        console.log(`✅ Extracted ${extractedText.length} chars from PDF (${pdfData.numpages} pages)`)
-      } catch (error) {
-        console.warn('⚠️ PDF parsing failed, will try OCR:', error)
+      } catch (pdftotextImportError) {
+        console.warn('⚠️ Could not use pdftotext, trying pdf-parse:', pdftotextImportError instanceof Error ? pdftotextImportError.message : String(pdftotextImportError))
+      }
+      
+      // Fallback to pdf-parse if pdftotext didn't work or returned minimal text
+      if (!extractedText || extractedText.length < 50) {
+        try {
+          console.log('📄 Attempting PDF text extraction with pdf-parse...')
+          // Dynamic import for pdf-parse (server-side only)
+          const pdfParseModule = await import('pdf-parse')
+          console.log('📦 PDF-parse module imported:', Object.keys(pdfParseModule))
+
+          // Better handling for dynamic imports
+          // pdf-parse is a CommonJS module, use createRequire for ESM compatibility
+          let parseFunction
+          
+          try {
+            // Try using createRequire for CommonJS compatibility in ESM
+            const { createRequire } = await import('module')
+            const require = createRequire(import.meta.url)
+            const pdfParseRequire = require('pdf-parse')
+            
+            if (typeof pdfParseRequire === 'function') {
+              parseFunction = pdfParseRequire
+              console.log('✅ Using require("pdf-parse") via createRequire')
+            } else {
+              throw new Error('pdf-parse is not a function')
+            }
+          } catch (requireError) {
+            // Fallback: try direct import
+            if (typeof pdfParseModule === 'function') {
+              parseFunction = pdfParseModule
+              console.log('✅ Using pdfParseModule directly')
+            } else if (pdfParseModule.default && typeof pdfParseModule.default === 'function') {
+              parseFunction = pdfParseModule.default
+              console.log('✅ Using pdfParseModule.default')
+            } else {
+              throw new Error(`Could not find parse function in pdf-parse module: ${requireError instanceof Error ? requireError.message : String(requireError)}`)
+            }
+          }
+
+          const pdfData = await parseFunction(fileBuffer)
+          const pdfParseText = pdfData.text
+          
+          // Use pdf-parse result if it's better than pdftotext (or if pdftotext failed)
+          if (!extractedText || pdfParseText.length > extractedText.length) {
+            extractedText = pdfParseText
+            metadata = {
+              pages: pdfData.numpages,
+              hasText: extractedText.length > 50,
+              source: 'pdf-parse'
+            }
+            console.log(`✅ PDF-parse extracted ${extractedText.length} chars from PDF (${pdfData.numpages} pages)`)
+          } else {
+            console.log(`✅ Using pdftotext result (${extractedText.length} chars) - pdf-parse returned ${pdfParseText.length} chars`)
+          }
+        } catch (error) {
+          console.warn('⚠️ PDF parsing failed, will try OCR:', error)
+          console.error('📋 PDF parsing error details:', error)
+        }
       }
     }
 
     // Step 2: If PDF has no text or is an image, try OCR
     // Lower threshold: if less than 50 chars, it's likely a scanned image
     if (!extractedText || extractedText.length < 50 || mimeType.startsWith('image/')) {
-      console.log(`🔍 PDF has little/no text (${extractedText.length} chars) or is image - performing OCR...`)
-      const ocrText = await this.performOCR(fileBuffer, mimeType)
+      console.log(`🔍 PDF has little/no text (${extractedText?.length || 0} chars) or is image - performing OCR...`)
+      
+      // Try Tesseract OCR first (free, local)
+      let ocrText = ''
+      try {
+        ocrText = await this.performOCR(fileBuffer, mimeType)
+        console.log(`📊 Tesseract OCR result: ${ocrText?.length || 0} characters`)
+        if (ocrText && ocrText.length > 0) {
+          console.log(`📝 Tesseract preview: ${ocrText.substring(0, 100)}...`)
+        }
+      } catch (tesseractError) {
+        console.error('❌ Tesseract OCR error:', tesseractError)
+        ocrText = ''
+      }
+      
       metadata.isImage = mimeType.startsWith('image/')
       
-      if (ocrText.length > 0) {
+      // Try Gemini Vision API as fallback if Tesseract failed or returned minimal text
+      // Only if GEMINI_API_KEY is configured
+      const hasGeminiKey = !!process.env.GEMINI_API_KEY
+      
+      // Check if Tesseract result is meaningful (not just whitespace or very short)
+      const tesseractTextLength = ocrText?.trim().length || 0
+      const tesseractIsMeaningful = tesseractTextLength >= 50
+      
+      const shouldTryGemini = hasGeminiKey && !tesseractIsMeaningful
+      
+      console.log(`📊 OCR Status: Tesseract=${ocrText?.length || 0} chars (meaningful=${tesseractIsMeaningful}), hasGeminiKey=${hasGeminiKey}, shouldTryGemini=${shouldTryGemini}`)
+      
+      if (shouldTryGemini) {
+        console.log(`⚠️ Tesseract OCR returned minimal/no meaningful text (${ocrText?.length || 0} chars, ${tesseractTextLength} non-whitespace), trying Gemini Vision API as fallback...`)
+        try {
+          const geminiOcrText = await this.performGeminiVisionOCR(fileBuffer, mimeType)
+          const geminiTextLength = geminiOcrText?.trim().length || 0
+          console.log(`📊 Gemini Vision OCR result: ${geminiOcrText?.length || 0} characters (${geminiTextLength} non-whitespace)`)
+          
+          if (geminiOcrText && geminiOcrText.length > 0) {
+            console.log(`📝 Gemini preview: ${geminiOcrText.substring(0, 100)}...`)
+          }
+          
+          // Use Gemini result if it's better than Tesseract (more text or more meaningful)
+          if (geminiTextLength > tesseractTextLength) {
+            console.log(`✅ Gemini Vision OCR extracted ${geminiOcrText.length} characters (${geminiTextLength} meaningful) - better than Tesseract's ${ocrText?.length || 0} chars (${tesseractTextLength} meaningful)`)
+            ocrText = geminiOcrText
+          } else if (ocrText && tesseractTextLength > 0) {
+            console.log(`✅ Using Tesseract OCR result (${ocrText.length} chars, ${tesseractTextLength} meaningful) - Gemini returned ${geminiOcrText?.length || 0} chars (${geminiTextLength} meaningful)`)
+          } else if (geminiOcrText && geminiTextLength > 0) {
+            console.log(`✅ Using Gemini Vision OCR result (${geminiOcrText.length} chars, ${geminiTextLength} meaningful) - Tesseract returned ${ocrText?.length || 0} chars (${tesseractTextLength} meaningful)`)
+            ocrText = geminiOcrText
+          } else {
+            console.warn(`⚠️ Both OCR methods failed - Tesseract: ${ocrText?.length || 0} chars (${tesseractTextLength} meaningful), Gemini: ${geminiOcrText?.length || 0} chars (${geminiTextLength} meaningful)`)
+          }
+        } catch (geminiError) {
+          console.error('❌ Gemini Vision OCR error:', geminiError)
+          console.error('❌ Gemini error details:', geminiError instanceof Error ? geminiError.message : String(geminiError))
+          if (geminiError instanceof Error && geminiError.stack) {
+            console.error('❌ Gemini error stack:', geminiError.stack)
+          }
+          // Continue with Tesseract result if available
+          if (ocrText && tesseractTextLength > 0) {
+            console.log(`✅ Using Tesseract OCR result despite Gemini error (${ocrText.length} chars, ${tesseractTextLength} meaningful)`)
+          }
+        }
+      } else if (!hasGeminiKey && !tesseractIsMeaningful) {
+        console.warn('⚠️ Tesseract OCR returned minimal/no meaningful text, but GEMINI_API_KEY is not configured')
+        console.warn('💡 Tip: To improve OCR results, add GEMINI_API_KEY to your .env.local file')
+        console.warn('💡 Get a free key at: https://aistudio.google.com/app/apikey')
+      } else if (tesseractIsMeaningful) {
+        console.log(`✅ Tesseract OCR returned sufficient meaningful text (${ocrText.length} chars, ${tesseractTextLength} non-whitespace), skipping Gemini Vision`)
+      }
+      
+      if (ocrText && ocrText.length > 0) {
         // Use OCR text if it's longer than extracted text, or if no text was extracted
-        if (ocrText.length > extractedText.length || extractedText.length === 0) {
+        if (ocrText.length > (extractedText?.length || 0) || !extractedText || extractedText.length === 0) {
           extractedText = ocrText
-          console.log(`✅ OCR extracted ${extractedText.length} characters (better than PDF text extraction)`)
+          console.log(`✅ OCR extracted ${ocrText.length} characters (better than PDF text extraction)`)
         } else {
           // Combine both if we have some from both sources
           extractedText = `${extractedText}\n\n${ocrText}`
           console.log(`✅ OCR added ${ocrText.length} characters to existing ${extractedText.length - ocrText.length} chars`)
         }
       } else {
-        console.warn('⚠️ OCR returned no text - document may be too blurry, unreadable, or require manual review')
+        console.warn('⚠️ All OCR methods failed - document may be too blurry, unreadable, or require manual review')
         // Keep the minimal text we have from PDF extraction (if any)
       }
     }
@@ -167,76 +461,126 @@ export class DocumentProcessor {
       let imageBuffer = buffer
       
       if (mimeType === 'application/pdf') {
-        // Convert PDF pages to image for OCR
-        // For passports/documents, we might need multiple pages, but start with first page
+        // Convert PDF pages to image for OCR using ImageMagick
         try {
-          console.log('📄 Converting PDF to image for OCR (density: 400 DPI for better quality)...')
-          const pdf2pic = await import('pdf2pic')
-          const { fromBuffer } = pdf2pic.default
-          
-          const convert = fromBuffer(buffer, {
-            density: 400,           // Higher density (400 DPI) = much better OCR quality
-            saveFilename: 'temp',
-            savePath: '/tmp',
-            format: 'png',
-            width: 3000,            // Higher resolution for better text recognition
-            height: 3000,
-            preserveAspectRatio: true, // Keep aspect ratio
-          })
+          console.log('📄 Converting PDF to image for OCR (density: 300 DPI)...')
           
           // Convert first page (most important for identification documents)
-          const result = await convert(1, { responseType: 'buffer' })
-          
-          if (result && result.buffer) {
-            console.log('✅ PDF converted to image, running OCR...')
-            imageBuffer = result.buffer
-            
-            // Enhance image quality for better OCR using sharp
-            try {
-              const sharp = await import('sharp')
-              imageBuffer = await sharp.default(imageBuffer)
-                .sharpen()                    // Sharpen edges for better text recognition
-                .normalize()                   // Normalize contrast
-                .greyscale()                   // Convert to greyscale (often better for OCR)
-                .toBuffer()
-              console.log('✅ Image preprocessed for OCR')
-            } catch (enhanceError) {
-              console.warn('⚠️ Image enhancement failed, using original:', enhanceError)
-            }
-          } else {
-            console.warn('⚠️ PDF conversion failed, skipping OCR for this PDF')
-            return ''
+          // Use lower density and smaller size for faster processing
+          imageBuffer = await this.convertPdfToImage(buffer, 1, {
+            density: 200, // Reduced from 300 for faster processing
+            format: 'png',
+            width: 1500, // Reduced from 2000 for faster processing
+            height: 1500,
+          })
+
+          // Simple validation that image buffer is valid
+          try {
+            const sharp = await import('sharp')
+            // Test if buffer is a valid image
+            const metadata = await sharp.default(imageBuffer).metadata()
+            console.log(`📊 Image metadata: ${metadata.width}x${metadata.height}, format: ${metadata.format}`)
+
+            // Enhance image quality for better OCR
+            const enhancedBuffer = await sharp.default(imageBuffer)
+              .sharpen()
+              .normalize()
+              .greyscale()
+              .png()
+              .toBuffer()
+            imageBuffer = enhancedBuffer
+            console.log(`✅ Image preprocessed for OCR (${enhancedBuffer.length} bytes)`)
+          } catch (sharpError) {
+            console.warn('⚠️ Image enhancement failed, using original buffer:', sharpError)
+            // Continue with original buffer
           }
         } catch (error) {
           console.error('❌ PDF to image conversion error:', error)
+          console.error('❌ Error details:', error instanceof Error ? error.message : String(error))
           return ''
         }
       }
 
-      // Ensure image is in supported format (JPEG/PNG)
-      if (mimeType !== 'image/jpeg' && mimeType !== 'image/png') {
-        imageBuffer = await sharpModule.default(buffer)
-          .jpeg({ quality: 90 })
-          .toBuffer()
+      // Ensure image is in supported format (JPEG/PNG) - only for non-PDF files
+      if (mimeType !== 'application/pdf' && mimeType !== 'image/jpeg' && mimeType !== 'image/png') {
+        try {
+          imageBuffer = await sharpModule.default(buffer)
+            .jpeg({ quality: 90 })
+            .toBuffer()
+        } catch (formatError) {
+          console.warn('⚠️ Image format conversion failed:', formatError)
+          throw new Error('Unsupported image format')
+        }
       }
 
-      // Run Tesseract OCR with optimized settings for document recognition
-      // Use deu+fra+ita+eng for multi-language support
-      // Add English for passports (often in English)
-      const { data } = await Tesseract.default.recognize(imageBuffer, 'deu+fra+ita+eng', {
-        logger: (m) => {
-          if (m.status === 'recognizing text') {
-            console.log(`🔍 OCR Progress: ${Math.round(m.progress * 100)}%`)
-          }
-        },
-        // OCR Engine Mode 3 = LSTM (better accuracy)
-        oem: 3,
-        // Page Segmentation Mode 6 = Assume uniform block of text (good for documents)
-        psm: 6,
-      })
+      // Validate image buffer before OCR
+      if (!imageBuffer || imageBuffer.length === 0) {
+        console.warn('⚠️ Empty image buffer for OCR')
+        return ''
+      }
 
-      const ocrText = data.text || ''
-      console.log(`✅ OCR completed: ${ocrText.length} characters extracted`)
+      console.log(`🔍 Starting OCR on ${imageBuffer.length} bytes image...`)
+
+      // Run Tesseract OCR with optimized settings for German documents
+      // Use deu+fra+ita+eng for Swiss multi-language support
+      console.log('🔍 Starting Tesseract OCR with multilingual support (deu+fra+ita+eng)...')
+
+      // Try multiple page segmentation modes for better results
+      // Start with fastest mode (3=auto), only try others if result is poor
+      const psmModes = [3, 6] // Reduced from [3, 6, 11] for faster processing - 3=auto, 6=uniform block
+      let bestResult = { text: '', confidence: 0 }
+      
+      for (const psm of psmModes) {
+        try {
+          console.log(`🔍 Trying Tesseract with PSM mode ${psm}...`)
+          
+          // Add timeout wrapper for OCR (max 20 seconds per mode)
+          const ocrPromise = Tesseract.default.recognize(imageBuffer, 'deu+fra+ita+eng', {
+            logger: (m) => {
+              if (m.status === 'recognizing text' && m.progress % 0.25 < 0.01) {
+                console.log(`🔍 OCR Progress (PSM ${psm}): ${Math.round(m.progress * 100)}%`)
+              }
+            },
+            // OCR Engine Mode 1 = LSTM (best for modern documents)
+            oem: 1,
+            // Page Segmentation Mode
+            psm: psm,
+            // Additional options for better text recognition
+            tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÄÖÜäöüßéèàùâêîôûüäöüß0123456789.,;:!?()-"\'/ \n\t€$%',
+            preserve_interword_spaces: '1',
+          })
+          
+          // Add timeout
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('OCR timeout after 20 seconds')), 20000)
+          })
+          
+          const { data } = await Promise.race([ocrPromise, timeoutPromise]) as any
+          
+          const text = data.text || ''
+          const confidence = data.confidence || 0
+          
+          console.log(`📊 PSM ${psm} result: ${text.length} chars, confidence: ${confidence.toFixed(1)}%`)
+          
+          // Use result with most text or highest confidence
+          if (text.length > bestResult.text.length || (text.length > 0 && confidence > bestResult.confidence)) {
+            bestResult = { text, confidence }
+            console.log(`✅ PSM ${psm} is better (${text.length} chars, ${confidence.toFixed(1)}% confidence)`)
+          }
+          
+          // Early exit: If we got a good result from PSM 3, skip other modes for speed
+          if (psm === 3 && text.length > 100 && confidence > 50) {
+            console.log(`✅ Good result from PSM 3 (${text.length} chars, ${confidence.toFixed(1)}% confidence), skipping other modes for speed`)
+            break
+          }
+        } catch (psmError) {
+          console.warn(`⚠️ PSM ${psm} failed:`, psmError instanceof Error ? psmError.message : String(psmError))
+          // Continue with next PSM mode
+        }
+      }
+      
+      const ocrText = bestResult.text
+      console.log(`✅ OCR completed: ${ocrText.length} characters extracted (best from ${psmModes.length} PSM modes)`)
       
       // Log first 200 chars for debugging
       if (ocrText.length > 0) {
@@ -248,6 +592,108 @@ export class DocumentProcessor {
       return ocrText
     } catch (error) {
       console.error('❌ OCR error:', error)
+      return ''
+    }
+  }
+
+  /**
+   * Perform OCR using Gemini Vision API (fallback when Tesseract fails)
+   * Uses Gemini's vision capabilities to extract text from images/PDFs
+   */
+  private async performGeminiVisionOCR(buffer: Buffer, mimeType: string): Promise<string> {
+    try {
+      // Initialize Gemini if not already done
+      if (!this.genAI) {
+        await this.initGemini()
+      }
+
+      if (!this.genAI || !process.env.GEMINI_API_KEY) {
+        console.warn('⚠️ Gemini API key not configured, skipping Gemini Vision OCR')
+        return ''
+      }
+
+      console.log('🔍 Starting Gemini Vision OCR...')
+
+      // Convert PDF to image if needed
+      let imageBuffer = buffer
+      let imageMimeType = mimeType
+
+      if (mimeType === 'application/pdf') {
+        try {
+          console.log('📄 Converting PDF to image for Gemini Vision OCR...')
+          
+          imageBuffer = await this.convertPdfToImage(buffer, 1, {
+            density: 200, // Reduced from 300 for faster processing
+            format: 'png',
+            width: 1500, // Reduced from 2000 for faster processing
+            height: 1500,
+          })
+          
+          imageMimeType = 'image/png'
+          console.log('✅ PDF converted to image for Gemini Vision OCR')
+        } catch (error) {
+          console.error('❌ PDF to image conversion error for Gemini Vision:', error)
+          console.error('❌ Error details:', error instanceof Error ? error.message : String(error))
+          return ''
+        }
+      }
+
+      // Convert buffer to base64 for Gemini Vision API
+      const base64Image = imageBuffer.toString('base64')
+
+      // Use Gemini Vision model with fallback options
+      const modelOptions = ['gemini-2.0-flash-exp', 'gemini-1.5-flash', 'gemini-1.5-pro']
+      let ocrText = ''
+      let lastError: Error | null = null
+      
+      for (const modelName of modelOptions) {
+        try {
+          console.log(`🔍 Trying Gemini model: ${modelName}...`)
+          const model = this.genAI.getGenerativeModel({ model: modelName })
+          
+          const prompt = `Extract all text from this document image. Include all visible text, numbers, dates, and information. Preserve the structure and formatting as much as possible. If this is a passport, ID card, contract, or official document, extract all relevant details including dates, names, numbers, and any other important information. Return only the extracted text, no explanations.`
+
+          const result = await model.generateContent([
+            {
+              inlineData: {
+                data: base64Image,
+                mimeType: imageMimeType,
+              },
+            },
+            prompt,
+          ])
+
+          const response = await result.response
+          ocrText = response.text() || ''
+
+          if (ocrText.length > 0) {
+            console.log(`✅ Gemini Vision OCR (${modelName}) extracted ${ocrText.length} characters`)
+            console.log(`📝 Gemini OCR text preview: ${ocrText.substring(0, 200)}...`)
+            return ocrText
+          } else {
+            console.warn(`⚠️ Gemini model ${modelName} returned no text, trying next model...`)
+          }
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error))
+          console.warn(`⚠️ Gemini model ${modelName} failed:`, lastError.message)
+          // Continue to next model
+          continue
+        }
+      }
+      
+      // If all models failed
+      if (ocrText.length === 0) {
+        console.error('❌ All Gemini Vision models failed')
+        if (lastError) {
+          console.error('❌ Last error:', lastError.message)
+        }
+        return ''
+      }
+      
+      return ocrText
+    } catch (error) {
+      console.error('❌ Gemini Vision OCR error:', error)
+      // Don't throw - return empty string so Tesseract result can still be used
       return ''
     }
   }
@@ -269,7 +715,7 @@ export class DocumentProcessor {
       throw new Error('Gemini API key not configured')
     }
 
-    const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash-001' })
+    const model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
     // Enhanced prompt with Swiss document context - optimized for better classification
     const prompt = `
@@ -646,31 +1092,25 @@ The filename is your strongest clue!
           .jpeg({ quality: 80 })
           .toBuffer()
       } else if (mimeType === 'application/pdf') {
-        // Convert first page of PDF to thumbnail image
+        // Convert first page of PDF to thumbnail image using ImageMagick
         try {
-          const pdf2pic = await import('pdf2pic')
-          const { fromBuffer } = pdf2pic.default
-          
-          const convert = fromBuffer(fileBuffer, {
+          const pdfImageBuffer = await this.convertPdfToImage(fileBuffer, 1, {
             density: 200,           // Lower density for thumbnails (faster)
-            saveFilename: 'temp',
-            savePath: '/tmp',
             format: 'jpg',
             width: 300,
             height: 300,
           })
           
-          const result = await convert(1, { responseType: 'buffer' })
-          
-          if (result && result.buffer) {
+          if (pdfImageBuffer && pdfImageBuffer.length > 0) {
             // Resize to thumbnail
-            return await sharpModule.default(result.buffer)
+            return await sharpModule.default(pdfImageBuffer)
               .resize(300, 300, { fit: 'inside', withoutEnlargement: true })
               .jpeg({ quality: 80 })
               .toBuffer()
           }
         } catch (error) {
           console.error('❌ PDF thumbnail generation error:', error)
+          console.error('❌ Error details:', error instanceof Error ? error.message : String(error))
         }
         return Buffer.from('')
       }

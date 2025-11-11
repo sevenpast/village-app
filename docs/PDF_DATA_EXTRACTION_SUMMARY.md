@@ -49,3 +49,21 @@ Die PDF wurde erfolgreich extrahiert und analysiert. Sie enthält umfassende Inf
 - **Prozessinformationen** sind detailliert beschrieben (z.B. Lausanne: "ouvert uniquement sur rendez-vous")
 - **Sprachliche Besonderheiten** müssen beachtet werden (deutsch/französisch/italienisch)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -154,3 +154,21 @@ async function parsePDFData(pdfPath: string) {
 const pdfPath = process.argv[2] || join(process.cwd(), 'Behördeninformationen für Expatriates.pdf')
 parsePDFData(pdfPath)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

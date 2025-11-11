@@ -16,6 +16,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Village - Welcome to Switzerland",
   description: "Your guide to relocating to Switzerland",
+  icons: {
+    icon: '/favicon.ico',
+  },
 };
 
 export default function RootLayout({

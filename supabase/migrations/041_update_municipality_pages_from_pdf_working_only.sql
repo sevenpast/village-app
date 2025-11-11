@@ -196,3 +196,21 @@ WHERE bfs_nummer = 140;
 
 COMMENT ON TABLE municipality_master_data IS 'Updated with WORKING URLs from PDF "Behördeninformationen für Expatriates.pdf" on 2025-11-06 (Part 1: Working URLs only)';
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

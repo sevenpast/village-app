@@ -32,7 +32,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch viewings' }, { status: 500 })
     }
 
-    return NextResponse.json({ viewings: viewings || [] })
+    // Get document counts for each viewing (optional, for performance)
+    const viewingsWithDocs = await Promise.all(
+      (viewings || []).map(async (viewing) => {
+        const { data: viewingDocs } = await supabase
+          .from('viewing_documents')
+          .select('document_id')
+          .eq('viewing_id', viewing.id)
+
+        return {
+          ...viewing,
+          document_count: viewingDocs?.length || 0,
+        }
+      })
+    )
+
+    return NextResponse.json({ viewings: viewingsWithDocs || [] })
   } catch (error) {
     console.error('Unexpected error in GET /api/housing/viewings:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -66,6 +81,7 @@ export async function POST(request: NextRequest) {
       rating_value,
       notes,
       is_favorite,
+      document_ids, // New: array of document IDs to link to this viewing
     } = body
 
     if (!address || !viewing_date) {
@@ -109,7 +125,94 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    return NextResponse.json({ viewing }, { status: 201 })
+    // Handle document_ids if provided
+    if (document_ids && Array.isArray(document_ids) && document_ids.length > 0) {
+      // Verify all documents belong to the user
+      const { data: userDocuments, error: docsError } = await supabase
+        .from('documents')
+        .select('id')
+        .in('id', document_ids)
+        .eq('user_id', user.id)
+        .is('deleted_at', null)
+
+      if (!docsError && userDocuments && userDocuments.length > 0) {
+        // Insert viewing_documents
+        const viewingDocInserts = userDocuments.map(doc => ({
+          viewing_id: viewing.id,
+          document_id: doc.id,
+        }))
+
+        const { error: insertError } = await supabase
+          .from('viewing_documents')
+          .insert(viewingDocInserts)
+
+        if (insertError) {
+          console.error('Error adding documents to viewing:', insertError)
+          // Continue, viewing is still created
+        }
+      }
+    }
+
+    // Fetch viewing with documents
+    const { data: viewingWithDocs } = await supabase
+      .from('apartment_viewings')
+      .select(`
+        *,
+        viewing_photos (
+          id,
+          file_name,
+          storage_path,
+          thumbnail_url,
+          display_order
+        )
+      `)
+      .eq('id', viewing.id)
+      .single()
+
+    // Get linked documents
+    const { data: viewingDocs } = await supabase
+      .from('viewing_documents')
+      .select(`
+        document_id,
+        documents (
+          id,
+          file_name,
+          mime_type,
+          file_size,
+          document_type,
+          tags,
+          created_at,
+          storage_path
+        )
+      `)
+      .eq('viewing_id', viewing.id)
+
+    const documents = (viewingDocs || [])
+      .map((vd: any) => vd.documents)
+      .filter((doc: any) => doc !== null && doc.deleted_at === null)
+      .map((doc: any) => {
+        const { data: { publicUrl } } = supabase.storage
+          .from('documents')
+          .getPublicUrl(doc.storage_path)
+
+        return {
+          id: doc.id,
+          file_name: doc.file_name,
+          mime_type: doc.mime_type,
+          file_size: doc.file_size,
+          document_type: doc.document_type,
+          tags: doc.tags,
+          created_at: doc.created_at,
+          download_url: publicUrl,
+        }
+      })
+
+    return NextResponse.json({ 
+      viewing: {
+        ...(viewingWithDocs || viewing),
+        documents,
+      }
+    }, { status: 201 })
   } catch (error) {
     console.error('Unexpected error in POST /api/housing/viewings:', error)
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'

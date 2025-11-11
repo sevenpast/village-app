@@ -102,3 +102,21 @@
 3. ⏳ Migration erstellen, um alle URLs zu aktualisieren
 4. ⏳ Code aktualisieren (`municipality-scraper.ts`)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -208,3 +208,21 @@ async function extractMunicipalityDataFromPDF(pdfPath: string) {
 const pdfPath = process.argv[2] || join(process.cwd(), 'Behördeninformationen für Expatriates.pdf')
 extractMunicipalityDataFromPDF(pdfPath)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

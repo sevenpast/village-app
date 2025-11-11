@@ -75,3 +75,21 @@ echo "  ⚠ Redirected: $redirected"
 echo "  ✗ Broken: $broken"
 echo "  Total: $((working + redirected + broken))"
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

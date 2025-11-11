@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import GlobalDocumentChat from './GlobalDocumentChat'
+import DocumentPreview from './DocumentPreview'
 
 interface Document {
   id: string
@@ -34,7 +36,22 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
   const [editingType, setEditingType] = useState<string>('')
   const [selectedDocuments, setSelectedDocuments] = useState<Set<string>>(new Set())
   const [bulkDownloading, setBulkDownloading] = useState(false)
+  const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(null)
+  const [globalChatOpen, setGlobalChatOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  
+  // Bundle Management State
+  const [bundles, setBundles] = useState<any[]>([])
+  const [viewMode, setViewMode] = useState<'documents' | 'bundles'>('documents')
+  const [showCreateBundleModal, setShowCreateBundleModal] = useState(false)
+  const [newBundleName, setNewBundleName] = useState('')
+  const [newBundleDescription, setNewBundleDescription] = useState('')
+  const [selectedBundleId, setSelectedBundleId] = useState<string | null>(null)
+  const [bundleDocuments, setBundleDocuments] = useState<Document[]>([])
+  const [showBundleViewModal, setShowBundleViewModal] = useState(false)
+  const [editingBundleId, setEditingBundleId] = useState<string | null>(null)
+  const [editingBundleName, setEditingBundleName] = useState('')
+  const [editingBundleDescription, setEditingBundleDescription] = useState('')
 
   // Available document types (as specified by user)
   const documentTypes = [
@@ -62,7 +79,10 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
 
   useEffect(() => {
     loadDocuments()
-  }, [])
+    if (viewMode === 'bundles') {
+      loadBundles()
+    }
+  }, [viewMode])
 
   // Filter documents based on search and type
   useEffect(() => {
@@ -311,6 +331,194 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
     }
   }
 
+  // Bundle Management Functions
+  const loadBundles = async () => {
+    try {
+      const response = await fetch('/api/vault/bundles')
+      if (!response.ok) {
+        throw new Error('Failed to load bundles')
+      }
+      const data = await response.json()
+      setBundles(data.bundles || [])
+    } catch (error) {
+      console.error('❌ Error loading bundles:', error)
+      alert(`Failed to load bundles: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  const handleCreateBundle = async () => {
+    if (!newBundleName.trim()) {
+      alert('Please enter a bundle name')
+      return
+    }
+
+    if (selectedDocuments.size === 0) {
+      alert('Please select documents to add to the bundle')
+      return
+    }
+
+    try {
+      const response = await fetch('/api/vault/bundles', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bundle_name: newBundleName.trim(),
+          description: newBundleDescription.trim() || null,
+          document_ids: Array.from(selectedDocuments),
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to create bundle')
+      }
+
+      const data = await response.json()
+      console.log('✅ Bundle created:', data.bundle.id)
+
+      // Reset form and reload
+      setNewBundleName('')
+      setNewBundleDescription('')
+      setShowCreateBundleModal(false)
+      setSelectedDocuments(new Set())
+      await loadBundles()
+      alert(`Bundle "${data.bundle.bundle_name}" created successfully!`)
+    } catch (error) {
+      console.error('❌ Error creating bundle:', error)
+      alert(`Failed to create bundle: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  const handleViewBundle = async (bundleId: string) => {
+    try {
+      const response = await fetch(`/api/vault/bundles/${bundleId}`)
+      if (!response.ok) {
+        throw new Error('Failed to load bundle')
+      }
+      const data = await response.json()
+      setBundleDocuments(data.documents || [])
+      setSelectedBundleId(bundleId)
+      setShowBundleViewModal(true)
+    } catch (error) {
+      console.error('❌ Error loading bundle:', error)
+      alert(`Failed to load bundle: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  const handleDownloadBundle = async (bundleId: string) => {
+    try {
+      const bundle = bundles.find(b => b.id === bundleId)
+      if (!bundle) return
+
+      // Get bundle details to get document IDs
+      const response = await fetch(`/api/vault/bundles/${bundleId}`)
+      if (!response.ok) {
+        throw new Error('Failed to load bundle')
+      }
+      const data = await response.json()
+      const documentIds = (data.documents || []).map((doc: Document) => doc.id)
+
+      if (documentIds.length === 0) {
+        alert('Bundle is empty')
+        return
+      }
+
+      // Use bulk download endpoint
+      const downloadResponse = await fetch('/api/vault/bulk-download', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          documentIds,
+        }),
+      })
+
+      if (!downloadResponse.ok) {
+        const errorData = await downloadResponse.json()
+        throw new Error(errorData.error || 'Download failed')
+      }
+
+      const blob = await downloadResponse.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${bundle.bundle_name}-${new Date().toISOString().split('T')[0]}.zip`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (error) {
+      console.error('❌ Error downloading bundle:', error)
+      alert(`Failed to download bundle: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  const handleEditBundle = (bundle: any) => {
+    setEditingBundleId(bundle.id)
+    setEditingBundleName(bundle.bundle_name)
+    setEditingBundleDescription(bundle.description || '')
+  }
+
+  const handleSaveBundleEdit = async () => {
+    if (!editingBundleId || !editingBundleName.trim()) {
+      alert('Please enter a bundle name')
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/vault/bundles/${editingBundleId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bundle_name: editingBundleName.trim(),
+          description: editingBundleDescription.trim() || null,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to update bundle')
+      }
+
+      setEditingBundleId(null)
+      setEditingBundleName('')
+      setEditingBundleDescription('')
+      await loadBundles()
+      alert('Bundle updated successfully!')
+    } catch (error) {
+      console.error('❌ Error updating bundle:', error)
+      alert(`Failed to update bundle: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  const handleDeleteBundle = async (bundleId: string, bundleName: string) => {
+    if (!confirm(`Are you sure you want to delete bundle "${bundleName}"?`)) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/vault/bundles/${bundleId}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to delete bundle')
+      }
+
+      await loadBundles()
+      alert('Bundle deleted successfully!')
+    } catch (error) {
+      console.error('❌ Error deleting bundle:', error)
+      alert(`Failed to delete bundle: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -385,12 +593,49 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
     <div className="w-full max-w-6xl mx-auto p-6">
       {/* Header */}
       <div className="mb-6">
-        <h2 className="text-3xl font-bold mb-2" style={{ color: '#2D5016' }}>
-          Document Vault
-        </h2>
-        <p className="text-gray-600">
-          Upload and manage your important documents securely
-        </p>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-3xl font-bold mb-2" style={{ color: '#2D5016' }}>
+              Document Vault
+            </h2>
+            <p className="text-gray-600">
+              Upload and manage your important documents securely
+            </p>
+          </div>
+          <button
+            onClick={() => setGlobalChatOpen(true)}
+            className="px-6 py-3 rounded-lg font-medium transition-opacity hover:opacity-90"
+            style={{ backgroundColor: '#2D5016', color: '#FFFFFF' }}
+          >
+            Chat with All Documents
+          </button>
+        </div>
+        
+        {/* View Mode Toggle */}
+        <div className="flex gap-2 mb-4">
+          <button
+            onClick={() => setViewMode('documents')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              viewMode === 'documents'
+                ? 'text-white'
+                : 'bg-white text-gray-700 border'
+            }`}
+            style={viewMode === 'documents' ? { backgroundColor: '#2D5016' } : { borderColor: '#2D5016' }}
+          >
+            Documents
+          </button>
+          <button
+            onClick={() => setViewMode('bundles')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              viewMode === 'bundles'
+                ? 'text-white'
+                : 'bg-white text-gray-700 border'
+            }`}
+            style={viewMode === 'bundles' ? { backgroundColor: '#2D5016' } : { borderColor: '#2D5016' }}
+          >
+            Bundles
+          </button>
+        </div>
       </div>
 
       {/* Search and Filter */}
@@ -502,31 +747,45 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
             </div>
 
             {selectedDocuments.size > 0 && (
-              <button
-                onClick={handleBulkDownload}
-                disabled={bulkDownloading}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
+              <div className="flex gap-2">
+                <button
+                  onClick={handleBulkDownload}
+                  disabled={bulkDownloading}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-                {bulkDownloading ? 'Creating ZIP...' : `Download ${selectedDocuments.size} files`}
-              </button>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  {bulkDownloading ? 'Creating ZIP...' : `Download ${selectedDocuments.size} files`}
+                </button>
+                <button
+                  onClick={() => setShowCreateBundleModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: '#2D5016', color: '#FFFFFF' }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  Create Bundle
+                </button>
+              </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Documents List */}
+      {/* Documents List - Only show when viewMode is 'documents' */}
+      {viewMode === 'documents' && (
+        <>
       {loading ? (
         <div className="text-center py-12">
           <div className="text-lg text-gray-600">Loading documents...</div>
@@ -708,6 +967,16 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
 
               {/* Actions */}
               <div className="flex gap-2">
+                {doc.download_url && (
+                  <button
+                    onClick={() => setPreviewDocumentId(doc.id)}
+                    className="px-3 py-2 text-sm rounded transition-colors hover:opacity-90"
+                    style={{ backgroundColor: '#2D5016', color: '#FFFFFF' }}
+                    title="Preview this document"
+                  >
+                    Preview
+                  </button>
+                )}
                 <button
                   onClick={() => handleEditTags(doc)}
                   className="px-3 py-2 text-sm rounded border transition-colors hover:bg-gray-50"
@@ -736,6 +1005,316 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
           ))}
         </div>
       )}
+        </>
+      )}
+
+      {/* Document Preview Modal */}
+      {previewDocumentId && (
+        <DocumentPreview
+          document={documents.find(d => d.id === previewDocumentId)}
+          isOpen={!!previewDocumentId}
+          onClose={() => setPreviewDocumentId(null)}
+        />
+      )}
+
+      {/* Bundles List View */}
+      {viewMode === 'bundles' && (
+        <div>
+          {bundles.length === 0 ? (
+            <div className="text-center py-12">
+              <svg
+                width="64"
+                height="64"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="mx-auto mb-4 text-gray-400"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+              </svg>
+              <p className="text-gray-600 mb-4">No bundles yet</p>
+              <p className="text-sm text-gray-500">
+                Select documents and create your first bundle
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {bundles.map((bundle) => (
+                <div
+                  key={bundle.id}
+                  className="border rounded-lg p-4 hover:shadow-md transition-shadow"
+                  style={{ backgroundColor: '#FFFFFF', borderColor: '#E5E7EB' }}
+                >
+                  <h3 className="font-semibold text-lg mb-2" style={{ color: '#2D5016' }}>
+                    {bundle.bundle_name}
+                  </h3>
+                  {bundle.description && (
+                    <p className="text-sm text-gray-600 mb-2">{bundle.description}</p>
+                  )}
+                  <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    {bundle.document_count || 0} document{bundle.document_count !== 1 ? 's' : ''}
+                  </div>
+                  <p className="text-xs text-gray-400 mb-4">
+                    Created: {new Date(bundle.created_at).toLocaleDateString('en-GB', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
+                  </p>
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      onClick={() => handleViewBundle(bundle.id)}
+                      className="px-3 py-2 text-sm rounded transition-colors hover:opacity-90"
+                      style={{ backgroundColor: '#2D5016', color: '#FFFFFF' }}
+                    >
+                      View
+                    </button>
+                    <button
+                      onClick={() => handleDownloadBundle(bundle.id)}
+                      className="px-3 py-2 text-sm rounded border transition-colors hover:bg-gray-50"
+                      style={{ borderColor: '#2D5016', color: '#2D5016' }}
+                    >
+                      Download ZIP
+                    </button>
+                    <button
+                      onClick={() => handleEditBundle(bundle)}
+                      className="px-3 py-2 text-sm rounded border transition-colors hover:bg-gray-50"
+                      style={{ borderColor: '#2D5016', color: '#2D5016' }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDeleteBundle(bundle.id, bundle.bundle_name)}
+                      className="px-3 py-2 text-sm rounded text-red-600 border border-red-600 transition-colors hover:bg-red-50"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Create Bundle Modal */}
+      {showCreateBundleModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4"
+          onClick={() => setShowCreateBundleModal(false)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-bold mb-4" style={{ color: '#2D5016' }}>
+              Create Bundle
+            </h3>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Bundle Name *
+              </label>
+              <input
+                type="text"
+                value={newBundleName}
+                onChange={(e) => setNewBundleName(e.target.value)}
+                placeholder="e.g., Municipality Registration Documents"
+                className="w-full px-3 py-2 rounded border"
+                style={{ borderColor: '#2D5016' }}
+              />
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Description (optional)
+              </label>
+              <textarea
+                value={newBundleDescription}
+                onChange={(e) => setNewBundleDescription(e.target.value)}
+                placeholder="Add a description for this bundle..."
+                rows={3}
+                className="w-full px-3 py-2 rounded border"
+                style={{ borderColor: '#2D5016' }}
+              />
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              {selectedDocuments.size} document{selectedDocuments.size !== 1 ? 's' : ''} will be added to this bundle
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => {
+                  setShowCreateBundleModal(false)
+                  setNewBundleName('')
+                  setNewBundleDescription('')
+                }}
+                className="px-4 py-2 rounded border transition-colors hover:bg-gray-50"
+                style={{ borderColor: '#2D5016', color: '#2D5016' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateBundle}
+                className="px-4 py-2 rounded text-white transition-opacity hover:opacity-90"
+                style={{ backgroundColor: '#2D5016' }}
+              >
+                Create Bundle
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Bundle Modal */}
+      {editingBundleId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4"
+          onClick={() => {
+            setEditingBundleId(null)
+            setEditingBundleName('')
+            setEditingBundleDescription('')
+          }}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-bold mb-4" style={{ color: '#2D5016' }}>
+              Edit Bundle
+            </h3>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Bundle Name *
+              </label>
+              <input
+                type="text"
+                value={editingBundleName}
+                onChange={(e) => setEditingBundleName(e.target.value)}
+                className="w-full px-3 py-2 rounded border"
+                style={{ borderColor: '#2D5016' }}
+              />
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Description (optional)
+              </label>
+              <textarea
+                value={editingBundleDescription}
+                onChange={(e) => setEditingBundleDescription(e.target.value)}
+                rows={3}
+                className="w-full px-3 py-2 rounded border"
+                style={{ borderColor: '#2D5016' }}
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => {
+                  setEditingBundleId(null)
+                  setEditingBundleName('')
+                  setEditingBundleDescription('')
+                }}
+                className="px-4 py-2 rounded border transition-colors hover:bg-gray-50"
+                style={{ borderColor: '#2D5016', color: '#2D5016' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveBundleEdit}
+                className="px-4 py-2 rounded text-white transition-opacity hover:opacity-90"
+                style={{ backgroundColor: '#2D5016' }}
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bundle View Modal */}
+      {showBundleViewModal && selectedBundleId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4"
+          onClick={() => {
+            setShowBundleViewModal(false)
+            setSelectedBundleId(null)
+            setBundleDocuments([])
+          }}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl p-6 w-full max-w-4xl max-h-[90vh] overflow-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold" style={{ color: '#2D5016' }}>
+                Bundle Documents
+              </h3>
+              <button
+                onClick={() => {
+                  setShowBundleViewModal(false)
+                  setSelectedBundleId(null)
+                  setBundleDocuments([])
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+            {bundleDocuments.length === 0 ? (
+              <p className="text-gray-500 text-center py-8">This bundle is empty</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {bundleDocuments.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="border rounded-lg p-4"
+                    style={{ borderColor: '#E5E7EB' }}
+                  >
+                    <h4 className="font-semibold mb-2">{doc.file_name}</h4>
+                    <p className="text-sm text-gray-600 mb-2">
+                      {formatFileSize(doc.file_size)}
+                    </p>
+                    {doc.document_type && (
+                      <p className="text-xs text-gray-500 mb-2">
+                        Type: {getDocumentTypeLabel(doc.document_type)}
+                      </p>
+                    )}
+                    <div className="flex gap-2 mt-3">
+                      {doc.download_url && (
+                        <a
+                          href={doc.download_url}
+                          download={doc.file_name}
+                          className="px-3 py-1 text-sm rounded border transition-colors hover:bg-gray-50"
+                          style={{ borderColor: '#2D5016', color: '#2D5016' }}
+                        >
+                          Download
+                        </a>
+                      )}
+                      <button
+                        onClick={() => setPreviewDocumentId(doc.id)}
+                        className="px-3 py-1 text-sm rounded transition-colors hover:opacity-90"
+                        style={{ backgroundColor: '#2D5016', color: '#FFFFFF' }}
+                      >
+                        Preview
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Global Document Chat Modal */}
+      <GlobalDocumentChat
+        isOpen={globalChatOpen}
+        onClose={() => setGlobalChatOpen(false)}
+        totalDocuments={documents.filter(d => d.mime_type === 'application/pdf' && d.processing_status === 'completed').length}
+      />
     </div>
   )
 }
