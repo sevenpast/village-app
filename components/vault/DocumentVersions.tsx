@@ -199,16 +199,6 @@ export default function DocumentVersions({
                         {version.metadata?.file_size && (
                           <div>Size: {formatFileSize(version.metadata.file_size)}</div>
                         )}
-                        {version.metadata?.new_document_id && (
-                          <div className="text-xs text-blue-600">
-                            📄 Linked to document: {version.metadata.new_document_id.substring(0, 8)}...
-                          </div>
-                        )}
-                        {version.metadata?.parent_document_id && (
-                          <div className="text-xs text-blue-600">
-                            🔗 Part of document: {version.metadata.parent_document_id.substring(0, 8)}...
-                          </div>
-                        )}
                         {version.change_summary && (
                           <div className="mt-2 p-2 bg-gray-100 rounded text-gray-700">
                             <strong>Changes:</strong> {version.change_summary}
