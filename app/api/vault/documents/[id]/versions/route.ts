@@ -203,7 +203,8 @@ export async function GET(
       parentDocumentId = versionWithParent.metadata.parent_document_id
     }
 
-    // Get all versions for the parent document (this includes all versions of documents with the same filename)
+    // Get all versions for the parent document only (not linked documents)
+    // Only return versions where document_id matches the parent document
     const { data: versions, error } = await supabase
       .from('document_versions')
       .select(`
@@ -217,7 +218,7 @@ export async function GET(
         metadata,
         document_id
       `)
-      .or(`document_id.eq.${parentDocumentId},metadata->>new_document_id.eq.${parentDocumentId},metadata->>parent_document_id.eq.${parentDocumentId}`)
+      .eq('document_id', parentDocumentId)
       .order('version_number', { ascending: true }) // Sort ascending: 1, 2, 3...
 
     if (error) {
@@ -237,23 +238,20 @@ export async function GET(
       )
     }
 
-    // Format versions and sort by version number (ascending: 1, 2, 3...)
-    // Also include document_id to show which document each version belongs to
-    // Group by document_id to avoid duplicates, keeping the one with the correct version_number
-    const versionMap = new Map<string, any>()
+    // Format versions - only one version per version_number should exist
+    // Group by version_number to ensure uniqueness
+    const versionMap = new Map<number, any>()
     
     for (const version of versions || []) {
-      const docId = version.document_id
-      // If we already have a version for this document_id, keep the one with the higher version_number
-      // (or the one that is_current if versions are equal)
-      if (!versionMap.has(docId)) {
-        versionMap.set(docId, version)
+      const versionNum = version.version_number
+      // If we already have a version with this number, keep the one that is_current
+      if (!versionMap.has(versionNum)) {
+        versionMap.set(versionNum, version)
       } else {
-        const existing = versionMap.get(docId)
-        // Prefer the version with higher version_number, or if equal, prefer the one that is_current
-        if (version.version_number > existing.version_number || 
-            (version.version_number === existing.version_number && version.is_current && !existing.is_current)) {
-          versionMap.set(docId, version)
+        const existing = versionMap.get(versionNum)
+        // Prefer the one that is_current
+        if (version.is_current && !existing.is_current) {
+          versionMap.set(versionNum, version)
         }
       }
     }
