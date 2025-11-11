@@ -895,7 +895,7 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
                   <h3 className="font-semibold text-gray-900 truncate flex-1">
                     {doc.file_name}
                   </h3>
-                  {doc.version_count && doc.version_count > 0 && (
+                  {typeof doc.version_count === 'number' && doc.version_count > 0 && (
                     <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700 font-medium">
                       {doc.version_count} version{doc.version_count !== 1 ? 's' : ''}
                     </span>

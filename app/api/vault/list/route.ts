@@ -108,15 +108,25 @@ export async function GET(request: NextRequest) {
 
             // Get version count for this document
             // Check both direct versions and versions where this document is referenced
-            const { count: versionCount } = await supabase
-              .from('document_versions')
-              .select('*', { count: 'exact', head: true })
-              .or(`document_id.eq.${doc.id},metadata->>new_document_id.eq.${doc.id},metadata->>parent_document_id.eq.${doc.id}`)
+            let versionCount = 0
+            try {
+              const { count, error: versionError } = await supabase
+                .from('document_versions')
+                .select('*', { count: 'exact', head: true })
+                .or(`document_id.eq.${doc.id},metadata->>new_document_id.eq.${doc.id},metadata->>parent_document_id.eq.${doc.id}`)
+              
+              if (!versionError && typeof count === 'number') {
+                versionCount = count
+              }
+            } catch (versionCountError) {
+              console.warn(`⚠️ Failed to get version count for document ${doc.id}:`, versionCountError)
+              versionCount = 0
+            }
 
             return {
               ...doc,
               download_url: publicUrl,
-              version_count: versionCount || 0,
+              version_count: versionCount,
             }
           } catch (urlError) {
             console.warn(`⚠️ Failed to generate URL for document ${doc.id}:`, urlError)
