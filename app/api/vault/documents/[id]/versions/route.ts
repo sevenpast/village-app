@@ -239,7 +239,26 @@ export async function GET(
 
     // Format versions and sort by version number (ascending: 1, 2, 3...)
     // Also include document_id to show which document each version belongs to
-    const formattedVersions = (versions || []).map((version: any) => ({
+    // Group by document_id to avoid duplicates, keeping the one with the correct version_number
+    const versionMap = new Map<string, any>()
+    
+    for (const version of versions || []) {
+      const docId = version.document_id
+      // If we already have a version for this document_id, keep the one with the higher version_number
+      // (or the one that is_current if versions are equal)
+      if (!versionMap.has(docId)) {
+        versionMap.set(docId, version)
+      } else {
+        const existing = versionMap.get(docId)
+        // Prefer the version with higher version_number, or if equal, prefer the one that is_current
+        if (version.version_number > existing.version_number || 
+            (version.version_number === existing.version_number && version.is_current && !existing.is_current)) {
+          versionMap.set(docId, version)
+        }
+      }
+    }
+    
+    const formattedVersions = Array.from(versionMap.values()).map((version: any) => ({
       id: version.id,
       document_id: version.document_id,
       version_number: version.version_number,
