@@ -218,7 +218,7 @@ export async function GET(
         document_id
       `)
       .or(`document_id.eq.${parentDocumentId},metadata->>new_document_id.eq.${parentDocumentId},metadata->>parent_document_id.eq.${parentDocumentId}`)
-      .order('version_number', { ascending: false })
+      .order('version_number', { ascending: true }) // Sort ascending: 1, 2, 3...
 
     if (error) {
       console.error('❌ Error fetching versions:', error)
@@ -237,9 +237,11 @@ export async function GET(
       )
     }
 
-    // Format versions (uploaded_by_name will be null if profiles table doesn't exist)
+    // Format versions and sort by version number (ascending: 1, 2, 3...)
+    // Also include document_id to show which document each version belongs to
     const formattedVersions = (versions || []).map((version: any) => ({
       id: version.id,
+      document_id: version.document_id,
       version_number: version.version_number,
       parent_version_id: version.parent_version_id,
       is_current: version.is_current,
@@ -249,6 +251,9 @@ export async function GET(
       change_summary: version.change_summary,
       metadata: version.metadata,
     }))
+    
+    // Sort by version number ascending (1, 2, 3...) so oldest is first
+    formattedVersions.sort((a, b) => a.version_number - b.version_number)
 
     return NextResponse.json({
       success: true,

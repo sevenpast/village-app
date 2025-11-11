@@ -300,32 +300,63 @@ export async function POST(request: NextRequest) {
     let versionLinked = false
     if (parentDocumentId) {
       try {
-        // Get the current version of the parent document to use as parent_version_id
-        const { data: currentVersion } = await supabase
-          .from('document_versions')
-          .select('id, version_number')
-          .eq('document_id', parentDocumentId)
-          .eq('is_current', true)
-          .single()
-
-        // Get next version number for the parent document
+        // Check if parent document already has versions
         const { data: existingVersions } = await supabase
           .from('document_versions')
-          .select('version_number')
+          .select('id, version_number, is_current')
           .eq('document_id', parentDocumentId)
           .order('version_number', { ascending: false })
-          .limit(1)
 
-        const nextVersionNumber = existingVersions && existingVersions.length > 0
-          ? existingVersions[0].version_number + 1
-          : 1
+        // Get the parent document info to create version 1 for it if it doesn't exist
+        const { data: parentDoc } = await supabase
+          .from('documents')
+          .select('file_name, mime_type, file_size, created_at')
+          .eq('id', parentDocumentId)
+          .single()
 
-        // Mark old current version as not current
-        if (currentVersion) {
-          await supabase
+        let parentVersion1Id: string | null = null
+        let nextVersionNumber = 2 // New document will be version 2
+
+        // If parent document has no versions, create version 1 for it first
+        if (!existingVersions || existingVersions.length === 0) {
+          // Create version 1 for the parent document (the old document)
+          const { data: parentVersion1, error: parentV1Error } = await supabase
             .from('document_versions')
-            .update({ is_current: false })
-            .eq('id', currentVersion.id)
+            .insert({
+              document_id: parentDocumentId,
+              version_number: 1,
+              parent_version_id: null,
+              is_current: false, // Old version is not current
+              uploaded_by: user.id,
+              change_summary: 'Original version (auto-created when new version was uploaded)',
+              metadata: {
+                file_name: parentDoc?.file_name || file.name,
+                mime_type: parentDoc?.mime_type || file.type,
+                file_size: parentDoc?.file_size || file.size,
+              },
+            })
+            .select('id')
+            .single()
+
+          if (!parentV1Error && parentVersion1) {
+            parentVersion1Id = parentVersion1.id
+            console.log(`✅ Created version 1 for parent document ${parentDocumentId}`)
+          }
+        } else {
+          // Parent already has versions, find the highest version number
+          const maxVersion = Math.max(...existingVersions.map(v => v.version_number))
+          nextVersionNumber = maxVersion + 1
+
+          // Find the current version to use as parent
+          const currentVersion = existingVersions.find(v => v.is_current)
+          if (currentVersion) {
+            parentVersion1Id = currentVersion.id
+            // Mark old current version as not current
+            await supabase
+              .from('document_versions')
+              .update({ is_current: false })
+              .eq('id', currentVersion.id)
+          }
         }
 
         // Create version record for the parent document (linking to the new document)
@@ -335,7 +366,7 @@ export async function POST(request: NextRequest) {
           .insert({
             document_id: parentDocumentId,
             version_number: nextVersionNumber,
-            parent_version_id: currentVersion?.id || null,
+            parent_version_id: parentVersion1Id,
             is_current: true,
             uploaded_by: user.id,
             change_summary: 'Auto-linked as new version (same filename, different content)',
@@ -355,7 +386,7 @@ export async function POST(request: NextRequest) {
             .insert({
               document_id: documentUuid,
               version_number: nextVersionNumber,
-              parent_version_id: currentVersion?.id || null,
+              parent_version_id: parentVersion1Id,
               is_current: true,
               uploaded_by: user.id,
               change_summary: 'Auto-linked as new version (same filename, different content)',
