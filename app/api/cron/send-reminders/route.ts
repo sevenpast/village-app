@@ -156,16 +156,130 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    console.log(`✅ Cron job completed: ${results.sent} sent, ${results.failed} failed`)
+    // Process document reminders
+    console.log('📄 Processing document reminders...')
+    
+    const docReminderResults = {
+      sent: 0,
+      failed: 0,
+      errors: [] as string[],
+    }
+    
+    // Get pending document reminders
+    const { data: docReminders, error: docReminderError } = await supabase
+      .from('document_reminders')
+      .select(`
+        id,
+        document_id,
+        user_id,
+        reminder_type,
+        reminder_date,
+        deadline_date,
+        documents (
+          file_name,
+          document_type
+        )
+      `)
+      .eq('status', 'pending')
+      .lte('reminder_date', nowISO)
+      .gte('reminder_date', oneHourAgo)
+      .order('reminder_date', { ascending: true })
+    
+    if (docReminderError) {
+      // Check if table doesn't exist (migration not run yet)
+      if (docReminderError.message?.includes('relation') || docReminderError.message?.includes('does not exist')) {
+        console.log('ℹ️ document_reminders table does not exist yet (migration not run)')
+      } else {
+        console.error('❌ Error fetching document reminders:', docReminderError)
+        docReminderResults.errors.push(`Failed to fetch: ${docReminderError.message}`)
+      }
+    } else if (docReminders && docReminders.length > 0) {
+      console.log(`📧 Found ${docReminders.length} document reminder(s) to send`)
+      
+      for (const reminder of docReminders) {
+        try {
+          // Get user information
+          const { data: user, error: userError } = await supabase.auth.admin.getUserById(reminder.user_id)
+          
+          if (userError || !user) {
+            console.error(`❌ User not found for document reminder ${reminder.id}:`, userError)
+            docReminderResults.failed++
+            docReminderResults.errors.push(`Reminder ${reminder.id}: User not found`)
+            continue
+          }
+          
+          // Get user profile for firstName
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('first_name')
+            .eq('user_id', reminder.user_id)
+            .single()
+          
+          const firstName = profile?.first_name || user.email?.split('@')[0] || 'there'
+          const document = reminder.documents as any
+          const deadlineDate = new Date(reminder.deadline_date)
+          const daysRemaining = Math.ceil((deadlineDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+          
+          // Build document URL
+          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://expatvillage.ch'
+          const documentUrl = `${baseUrl}/vault`
+          
+          // Send email (using task reminder template for now, can be customized later)
+          console.log(`📧 Sending document reminder email to ${user.email} for document ${reminder.document_id}`)
+          const emailResult = await sendTaskReminder({
+            to: user.email!,
+            firstName,
+            taskTitle: `${document?.file_name || 'Document'} - Deadline approaching`,
+            taskNumber: daysRemaining,
+            taskUrl: documentUrl,
+          })
+          
+          if (emailResult.success) {
+            // Mark reminder as sent
+            await supabase
+              .from('document_reminders')
+              .update({
+                status: 'sent',
+              })
+              .eq('id', reminder.id)
+            
+            console.log(`✅ Document reminder ${reminder.id} sent successfully`)
+            docReminderResults.sent++
+          } else {
+            console.error(`❌ Failed to send document reminder ${reminder.id}:`, emailResult.error)
+            docReminderResults.failed++
+            docReminderResults.errors.push(`Reminder ${reminder.id}: ${emailResult.error || 'Unknown error'}`)
+          }
+        } catch (error) {
+          console.error(`❌ Error processing document reminder ${reminder.id}:`, error)
+          docReminderResults.failed++
+          docReminderResults.errors.push(
+            `Reminder ${reminder.id}: ${error instanceof Error ? error.message : 'Unknown error'}`
+          )
+        }
+      }
+    } else {
+      console.log('✅ No document reminders to send')
+    }
+    
+    console.log(`✅ Cron job completed: ${results.sent} task reminders sent, ${docReminderResults.sent} document reminders sent`)
     
     return NextResponse.json({
       success: true,
-      message: `Processed ${reminders.length} reminder(s)`,
+      message: `Processed ${reminders.length} task reminder(s) and ${docReminders?.length || 0} document reminder(s)`,
       results: {
-        total: reminders.length,
-        sent: results.sent,
-        failed: results.failed,
-        errors: results.errors,
+        task_reminders: {
+          total: reminders.length,
+          sent: results.sent,
+          failed: results.failed,
+          errors: results.errors,
+        },
+        document_reminders: {
+          total: docReminders?.length || 0,
+          sent: docReminderResults.sent,
+          failed: docReminderResults.failed,
+          errors: docReminderResults.errors,
+        },
       },
     })
   } catch (error) {

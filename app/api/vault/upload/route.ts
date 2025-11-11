@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { DocumentProcessor } from '@/lib/vault/document-processor'
 import { generateSmartTags, getDocumentType, getClassificationConfidence } from '@/lib/utils/documentClassifier'
+import { detectSimilarDocuments, checkExactDuplicate } from '@/lib/vault/duplicate-detector'
+import { createHash } from 'crypto'
 
 /**
  * Upload document to Vault
@@ -72,6 +74,32 @@ export async function POST(request: NextRequest) {
     // Convert File to Buffer
     const arrayBuffer = await file.arrayBuffer()
     const fileBuffer = Buffer.from(arrayBuffer)
+
+    // Check for exact duplicate BEFORE uploading
+    console.log('🔍 Checking for exact duplicate...')
+    const duplicate = await checkExactDuplicate(
+      supabase,
+      user.id,
+      file.name,
+      file.size,
+      fileBuffer
+    )
+
+    if (duplicate) {
+      console.log(`⚠️ Exact duplicate found: ${duplicate.id} (${duplicate.file_name})`)
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'This file has already been uploaded',
+          duplicate: {
+            id: duplicate.id,
+            file_name: duplicate.file_name,
+          },
+          message: `A file with the same name and size already exists. Please check your document vault.`,
+        },
+        { status: 409 } // 409 Conflict
+      )
+    }
 
     // Generate unique file path
     // Path structure: {user_id}/{timestamp}-{random}.{ext}
@@ -188,6 +216,29 @@ export async function POST(request: NextRequest) {
     // For now, mark as processing
     const documentUuid = crypto.randomUUID()
 
+    // Calculate file hash for duplicate detection
+    const fileHash = createHash('sha256').update(fileBuffer).digest('hex')
+
+    // Check if there's an existing document with the same filename (for version linking)
+    let parentDocumentId: string | null = null
+    const { data: existingDocsWithSameName } = await supabase
+      .from('documents')
+      .select('id, file_name, file_hash')
+      .eq('user_id', user.id)
+      .eq('file_name', file.name)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (existingDocsWithSameName && existingDocsWithSameName.length > 0) {
+      const existingDoc = existingDocsWithSameName[0]
+      // Only link as version if hash is different (different content)
+      if (existingDoc.file_hash && existingDoc.file_hash !== fileHash) {
+        parentDocumentId = existingDoc.id
+        console.log(`🔗 Found existing document with same name but different content - will link as version: ${parentDocumentId}`)
+      }
+    }
+
     // Create document record with initial classification
     console.log('💾 Creating document record in database...')
     const { data: document, error: docError } = await supabase
@@ -204,6 +255,7 @@ export async function POST(request: NextRequest) {
         confidence: confidence,
         processing_status: 'processing',
         fulfilled_requirement: fulfilledRequirement || null, // Store which requirement this fulfills
+        file_hash: fileHash, // Store hash for future duplicate detection
       } as any) // Type assertion to bypass TypeScript type checking
       .select()
       .single()
@@ -244,6 +296,90 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ Document record created:', document.id)
 
+    // If parent document found, automatically link as version
+    let versionLinked = false
+    if (parentDocumentId) {
+      try {
+        // Get the current version of the parent document to use as parent_version_id
+        const { data: currentVersion } = await supabase
+          .from('document_versions')
+          .select('id, version_number')
+          .eq('document_id', parentDocumentId)
+          .eq('is_current', true)
+          .single()
+
+        // Get next version number for the parent document
+        const { data: existingVersions } = await supabase
+          .from('document_versions')
+          .select('version_number')
+          .eq('document_id', parentDocumentId)
+          .order('version_number', { ascending: false })
+          .limit(1)
+
+        const nextVersionNumber = existingVersions && existingVersions.length > 0
+          ? existingVersions[0].version_number + 1
+          : 1
+
+        // Mark old current version as not current
+        if (currentVersion) {
+          await supabase
+            .from('document_versions')
+            .update({ is_current: false })
+            .eq('id', currentVersion.id)
+        }
+
+        // Create version record for the parent document (linking to the new document)
+        // This way, when viewing versions of the parent document, the new document will appear
+        const { error: versionError } = await supabase
+          .from('document_versions')
+          .insert({
+            document_id: parentDocumentId,
+            version_number: nextVersionNumber,
+            parent_version_id: currentVersion?.id || null,
+            is_current: true,
+            uploaded_by: user.id,
+            change_summary: 'Auto-linked as new version (same filename, different content)',
+            metadata: {
+              new_document_id: documentUuid, // Reference to the new document
+              file_name: file.name,
+              mime_type: file.type,
+              file_size: file.size,
+            },
+          })
+
+        // Also create a version record for the new document itself
+        // This allows viewing versions from the new document's perspective
+        if (!versionError) {
+          await supabase
+            .from('document_versions')
+            .insert({
+              document_id: documentUuid,
+              version_number: nextVersionNumber,
+              parent_version_id: currentVersion?.id || null,
+              is_current: true,
+              uploaded_by: user.id,
+              change_summary: 'Auto-linked as new version (same filename, different content)',
+              metadata: {
+                parent_document_id: parentDocumentId, // Reference to the parent document
+                file_name: file.name,
+                mime_type: file.type,
+                file_size: file.size,
+              },
+            })
+        }
+
+        if (!versionError) {
+          versionLinked = true
+          console.log(`✅ Automatically linked as version ${nextVersionNumber} of document ${parentDocumentId}`)
+        } else {
+          console.warn('⚠️ Failed to create version link:', versionError)
+        }
+      } catch (versionError) {
+        console.warn('⚠️ Error linking as version (non-critical):', versionError)
+        // Don't fail the upload if version linking fails
+      }
+    }
+
     // Process document asynchronously (don't block response)
     // Don't await - let it run in background
     // Pass document_id (table ID 1-6) and providedDocumentType to preserve explicit tagging
@@ -253,7 +389,8 @@ export async function POST(request: NextRequest) {
       file.name, 
       file.type, 
       storagePath, 
-      supabase, 
+      supabase,
+      user.id, // Pass user ID for reminder creation
       documentId || undefined, // Pass document_id (1-6) from table for ID-based mapping
       providedDocumentType || undefined, // Pass direct type if provided
       confidence
@@ -279,7 +416,11 @@ export async function POST(request: NextRequest) {
         file_name: document.file_name,
         processing_status: document.processing_status,
       },
-      message: 'File uploaded successfully. Processing in background...',
+      version_linked: versionLinked,
+      parent_document_id: parentDocumentId || undefined,
+      message: versionLinked 
+        ? `File uploaded successfully and linked as new version. Processing in background...`
+        : 'File uploaded successfully. Processing in background...',
     })
   } catch (error) {
     console.error('❌ Upload error:', error)
@@ -301,6 +442,7 @@ export async function POST(request: NextRequest) {
  * @param mimeType - MIME type
  * @param storagePath - Storage path in Supabase
  * @param supabase - Supabase client
+ * @param userId - User ID for reminder creation
  * @param providedDocumentId - Document ID from table (1-6) for ID-based mapping
  * @param providedDocumentType - Document type provided via FormData
  * @param providedConfidence - Confidence score of the provided type
@@ -312,6 +454,7 @@ async function processDocumentAsync(
   mimeType: string,
   storagePath: string,
   supabase: any,
+  userId: string,
   providedDocumentId?: number,
   providedDocumentType?: string,
   providedConfidence: number = 1.0
@@ -443,6 +586,60 @@ async function processDocumentAsync(
         .eq('id', documentId)
     } else {
       console.log(`✅ Document ${documentId} processed successfully`)
+      
+      // Create automatic reminders if dates are found in extracted_fields
+      if (processed.extractedFields && Object.keys(processed.extractedFields).length > 0) {
+        try {
+          const { createDocumentReminders } = await import('@/lib/vault/reminder-creator')
+          const reminderResult = await createDocumentReminders(
+            supabase,
+            documentId,
+            userId,
+            finalType,
+            processed.extractedFields
+          )
+          if (reminderResult.created > 0) {
+            console.log(`✅ Created ${reminderResult.created} automatic reminder(s) for document ${documentId}`)
+          }
+        } catch (reminderError) {
+          console.warn('⚠️ Failed to create automatic reminders (non-critical):', reminderError)
+          // Don't fail the upload if reminder creation fails
+        }
+      }
+
+      // Detect similar documents for version suggestion (non-blocking)
+      try {
+        const similarDocs = await detectSimilarDocuments(
+          supabase,
+          userId,
+          fileName,
+          processed.extractedText,
+          finalType,
+          0.75 // 75% similarity threshold
+        )
+        
+        if (similarDocs.length > 0) {
+          console.log(`🔍 Found ${similarDocs.length} similar document(s) for ${documentId}`)
+          // Store similar documents in document metadata for later retrieval
+          await supabase
+            .from('documents')
+            .update({
+              metadata: {
+                similar_documents: similarDocs.map(doc => ({
+                  id: doc.id,
+                  file_name: doc.file_name,
+                  similarity_score: doc.similarity_score,
+                  match_type: doc.match_type,
+                })),
+                duplicate_check_at: new Date().toISOString(),
+              },
+            } as any)
+            .eq('id', documentId)
+        }
+      } catch (duplicateError) {
+        console.warn('⚠️ Duplicate detection failed (non-critical):', duplicateError)
+        // Don't fail the upload if duplicate detection fails
+      }
     }
   } catch (error) {
     console.error(`❌ Error processing document ${documentId}:`, error)

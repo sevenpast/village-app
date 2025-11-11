@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
 
     console.log(`📄 Found ${documents.length} documents`)
 
-    // Get download URLs for each document
+    // Get download URLs and version counts for each document
     try {
       const documentsWithUrls = await Promise.all(
         (documents || []).map(async (doc) => {
@@ -106,15 +106,24 @@ export async function GET(request: NextRequest) {
               .from('documents')
               .getPublicUrl(doc.storage_path)
 
+            // Get version count for this document
+            // Check both direct versions and versions where this document is referenced
+            const { count: versionCount } = await supabase
+              .from('document_versions')
+              .select('*', { count: 'exact', head: true })
+              .or(`document_id.eq.${doc.id},metadata->>new_document_id.eq.${doc.id},metadata->>parent_document_id.eq.${doc.id}`)
+
             return {
               ...doc,
               download_url: publicUrl,
+              version_count: versionCount || 0,
             }
           } catch (urlError) {
             console.warn(`⚠️ Failed to generate URL for document ${doc.id}:`, urlError)
             return {
               ...doc,
               download_url: null,
+              version_count: 0,
             }
           }
         })

@@ -3,7 +3,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import GlobalDocumentChat from './GlobalDocumentChat'
+import DocumentReminders from './DocumentReminders'
 import DocumentPreview from './DocumentPreview'
+import DocumentVersions from './DocumentVersions'
 
 interface Document {
   id: string
@@ -17,6 +19,7 @@ interface Document {
   thumbnail_url: string | null
   created_at: string
   download_url?: string
+  version_count?: number // Number of versions for this document
 }
 
 interface DocumentVaultProps {
@@ -37,12 +40,13 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
   const [selectedDocuments, setSelectedDocuments] = useState<Set<string>>(new Set())
   const [bulkDownloading, setBulkDownloading] = useState(false)
   const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(null)
+  const [versionsDocumentId, setVersionsDocumentId] = useState<string | null>(null)
   const [globalChatOpen, setGlobalChatOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
   // Bundle Management State
   const [bundles, setBundles] = useState<any[]>([])
-  const [viewMode, setViewMode] = useState<'documents' | 'bundles'>('documents')
+  const [viewMode, setViewMode] = useState<'documents' | 'bundles' | 'reminders'>('documents')
   const [showCreateBundleModal, setShowCreateBundleModal] = useState(false)
   const [newBundleName, setNewBundleName] = useState('')
   const [newBundleDescription, setNewBundleDescription] = useState('')
@@ -204,15 +208,29 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
         // Reload documents list
         await loadDocuments()
         setUploadProgress(0)
+        
+        // Show success message with version info if applicable
+        if (data.version_linked) {
+          alert(`✅ File uploaded successfully!\n\nThis file has been automatically linked as a new version of an existing document with the same name.`)
+        }
       } else {
-        const errorMsg = data.details || data.error || 'Unknown error'
-        console.error('Upload failed:', errorMsg)
-        alert(`Upload failed: ${errorMsg}`)
+        // Handle duplicate file error (409 Conflict) with user-friendly message
+        if (response.status === 409 && data.duplicate) {
+          const duplicateFileName = data.duplicate.file_name || file.name
+          console.warn('Duplicate file detected:', duplicateFileName)
+          alert(`This file has already been uploaded: "${duplicateFileName}"`)
+        } else {
+          // Handle other errors
+          const errorMsg = data.message || data.details || data.error || 'Unknown error'
+          console.error('Upload failed:', errorMsg)
+          alert(`Upload failed: ${errorMsg}`)
+        }
         setUploadProgress(0)
       }
     } catch (error) {
       console.error('Upload error:', error)
-      alert(`Upload error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      alert(`Upload error: ${errorMsg}`)
       setUploadProgress(0)
     } finally {
       setUploading(false)
@@ -635,6 +653,17 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
           >
             Bundles
           </button>
+          <button
+            onClick={() => setViewMode('reminders')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              viewMode === 'reminders'
+                ? 'text-white'
+                : 'bg-white text-gray-700 border'
+            }`}
+            style={viewMode === 'reminders' ? { backgroundColor: '#2D5016' } : { borderColor: '#2D5016' }}
+          >
+            Reminders
+          </button>
         </div>
       </div>
 
@@ -862,9 +891,16 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
 
               {/* Document Info */}
               <div className="mb-3">
-                <h3 className="font-semibold text-gray-900 mb-1 truncate">
-                  {doc.file_name}
-                </h3>
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="font-semibold text-gray-900 truncate flex-1">
+                    {doc.file_name}
+                  </h3>
+                  {doc.version_count && doc.version_count > 0 && (
+                    <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700 font-medium">
+                      {doc.version_count} version{doc.version_count !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-xs font-medium text-gray-700">
                     {formatFileSize(doc.file_size)}
@@ -966,7 +1002,7 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
               ) : null}
 
               {/* Actions */}
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 {doc.download_url && (
                   <button
                     onClick={() => setPreviewDocumentId(doc.id)}
@@ -977,6 +1013,14 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
                     Preview
                   </button>
                 )}
+                <button
+                  onClick={() => setVersionsDocumentId(doc.id)}
+                  className="px-3 py-2 text-sm rounded border transition-colors hover:bg-gray-50"
+                  style={{ borderColor: '#2D5016', color: '#2D5016' }}
+                  title="View document versions"
+                >
+                  Versions
+                </button>
                 <button
                   onClick={() => handleEditTags(doc)}
                   className="px-3 py-2 text-sm rounded border transition-colors hover:bg-gray-50"
@@ -1015,6 +1059,25 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
           isOpen={!!previewDocumentId}
           onClose={() => setPreviewDocumentId(null)}
         />
+      )}
+
+      {/* Document Versions Modal */}
+      {versionsDocumentId && (
+        <DocumentVersions
+          documentId={versionsDocumentId}
+          documentName={documents.find(d => d.id === versionsDocumentId)?.file_name || 'Document'}
+          isOpen={!!versionsDocumentId}
+          onClose={() => setVersionsDocumentId(null)}
+          onVersionRestore={() => {
+            // Reload documents after version restore
+            loadDocuments()
+          }}
+        />
+      )}
+
+      {/* Reminders View */}
+      {viewMode === 'reminders' && (
+        <DocumentReminders userId={userId} />
       )}
 
       {/* Bundles List View */}
