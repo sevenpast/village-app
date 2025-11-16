@@ -202,6 +202,8 @@ export async function GET(
     if (versionWithParent?.metadata?.parent_document_id) {
       parentDocumentId = versionWithParent.metadata.parent_document_id
     }
+    
+    console.log(`📄 Versions API: documentId=${documentId}, parentDocumentId=${parentDocumentId}, allVersions count=${allVersions?.length || 0}`)
 
     // Get all versions for the parent document only (not linked documents)
     // Only return versions where document_id matches the parent document
@@ -258,10 +260,24 @@ export async function GET(
     
     const formattedVersions = Array.from(versionMap.values()).map((version: any) => {
       // Check if this version represents the document being viewed
-      // If metadata.new_document_id matches documentId, this version represents the new document
-      // If document_id matches documentId and there's no new_document_id, this is the original document
-      const isViewing = version.metadata?.new_document_id === documentId ||
-                        (version.document_id === documentId && !version.metadata?.new_document_id)
+      // Case 1: If viewing the parent document (documentId === parentDocumentId)
+      //   - Version 1 (original) has document_id === parentDocumentId and no new_document_id in metadata
+      //   - Version 2+ has document_id === parentDocumentId and new_document_id in metadata (pointing to child document)
+      // Case 2: If viewing a child document (documentId !== parentDocumentId)
+      //   - The version with metadata.new_document_id === documentId is the one being viewed
+      let isViewing = false
+      
+      if (documentId === parentDocumentId) {
+        // Viewing the parent document - Version 1 is the one being viewed
+        // Version 1 has no new_document_id in metadata (it's the original)
+        isViewing = version.version_number === 1 && !version.metadata?.new_document_id
+      } else {
+        // Viewing a child document - find the version that references this document
+        // The version with new_document_id matching documentId is the one being viewed
+        isViewing = version.metadata?.new_document_id === documentId
+      }
+      
+      console.log(`  Version ${version.version_number}: document_id=${version.document_id}, new_document_id=${version.metadata?.new_document_id}, isViewing=${isViewing}`)
       
       return {
         id: version.id,
