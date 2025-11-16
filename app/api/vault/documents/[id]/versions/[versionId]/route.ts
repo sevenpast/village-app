@@ -25,6 +25,8 @@ export async function GET(
     // Get specific version by ID (versionId is unique)
     // We don't need to check documentId ownership first - we'll check version ownership instead
     console.log(`🔍 Looking for version ${versionId} (documentId in URL: ${documentId})`)
+    console.log(`👤 User ID: ${user.id}`)
+    
     const { data: version, error } = await supabase
       .from('document_versions')
       .select(`
@@ -41,10 +43,37 @@ export async function GET(
       .eq('id', versionId)
       .single()
 
-    if (error || !version) {
-      console.error(`❌ Version ${versionId} not found:`, error?.message || 'No version returned')
+    if (error) {
+      console.error(`❌ Error querying version ${versionId}:`, {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+      })
+      
+      // Check if it's an RLS policy issue
+      if (error.code === 'PGRST116' || error.message?.includes('permission denied') || error.message?.includes('policy')) {
+        console.error(`🚫 RLS Policy blocked access to version ${versionId}`)
+        return NextResponse.json(
+          { 
+            error: 'Version not found or access denied',
+            details: 'RLS policy blocked access',
+            code: error.code,
+          },
+          { status: 404 }
+        )
+      }
+      
       return NextResponse.json(
-        { error: 'Version not found', details: error?.message },
+        { error: 'Version not found', details: error?.message, code: error?.code },
+        { status: 404 }
+      )
+    }
+
+    if (!version) {
+      console.error(`❌ Version ${versionId} not found: No version returned`)
+      return NextResponse.json(
+        { error: 'Version not found', details: 'No version returned from database' },
         { status: 404 }
       )
     }
@@ -98,28 +127,51 @@ export async function GET(
     // Version 2+: metadata.new_document_id is the child document
     const versionDocumentId = versionData.metadata?.new_document_id || versionData.document_id
     
+    console.log(`📄 Version represents document: ${versionDocumentId} (from metadata.new_document_id: ${versionData.metadata?.new_document_id || 'none'}, fallback to document_id: ${versionData.document_id})`)
+    
     // Verify that versionDocumentId is owned by the user
     const userDocs = userDocuments as { id: string }[]
     const userOwnsVersionDoc = userDocs.some(doc => doc.id === versionDocumentId)
+    
+    console.log(`🔍 User owns version document ${versionDocumentId}: ${userOwnsVersionDoc}`)
+    console.log(`📋 User owns documents:`, userDocs.map(d => d.id))
+    
+    // If the version document doesn't exist or isn't owned, but user owns document_id, use document_id instead
+    // This handles cases where the child document was deleted but the version record still references it
+    let finalDocumentId = versionDocumentId
     if (!userOwnsVersionDoc) {
-      return NextResponse.json(
-        { error: 'Version not found or access denied' },
-        { status: 404 }
-      )
+      console.warn(`⚠️ Version document ${versionDocumentId} not owned by user, checking if we can use document_id ${versionData.document_id} instead`)
+      const userOwnsParentDoc = userDocs.some(doc => doc.id === versionData.document_id)
+      if (userOwnsParentDoc) {
+        console.log(`✅ Using parent document_id ${versionData.document_id} instead`)
+        finalDocumentId = versionData.document_id
+      } else {
+        console.error(`❌ Access denied: User does not own version document ${versionDocumentId} or parent document ${versionData.document_id}`)
+        return NextResponse.json(
+          { 
+            error: 'Version not found or access denied',
+            details: `User does not own document ${versionDocumentId} referenced by this version`,
+            version_document_id: versionDocumentId,
+            parent_document_id: versionData.document_id,
+            user_owns_documents: userDocs.map(d => d.id),
+          },
+          { status: 404 }
+        )
+      }
     }
     
     // Get the actual document to retrieve download URL, extracted_fields, and extracted_text
     const { data: versionDocument, error: docError } = await supabase
       .from('documents')
       .select('id, file_name, mime_type, file_size, storage_path, extracted_fields, extracted_text, processing_status')
-      .eq('id', versionDocumentId)
+      .eq('id', finalDocumentId)
       .eq('user_id', user.id)
       .single()
 
     if (docError || !versionDocument) {
-      console.error(`❌ Document ${versionDocumentId} not found:`, docError?.message || 'No document returned')
+      console.error(`❌ Document ${finalDocumentId} not found:`, docError?.message || 'No document returned')
       return NextResponse.json(
-        { error: 'Document for this version not found' },
+        { error: 'Document for this version not found', details: docError?.message },
         { status: 404 }
       )
     }
