@@ -108,15 +108,16 @@ export async function GET(
       )
     }
     
-    // Get the actual document to retrieve download URL
+    // Get the actual document to retrieve download URL and extracted_fields
     const { data: versionDocument, error: docError } = await supabase
       .from('documents')
-      .select('id, file_name, mime_type, file_size, storage_path')
+      .select('id, file_name, mime_type, file_size, storage_path, extracted_fields')
       .eq('id', versionDocumentId)
       .eq('user_id', user.id)
       .single()
 
     if (docError || !versionDocument) {
+      console.error(`❌ Document ${versionDocumentId} not found:`, docError?.message || 'No document returned')
       return NextResponse.json(
         { error: 'Document for this version not found' },
         { status: 404 }
@@ -130,6 +131,7 @@ export async function GET(
       mime_type: string | null
       file_size: number
       storage_path: string
+      extracted_fields: Record<string, any> | null
     }
 
     // Generate download URL (signed URL for private bucket)
@@ -138,6 +140,12 @@ export async function GET(
       .createSignedUrl(documentData.storage_path, 3600) // 1 hour expiry
 
     const downloadUrl = signedUrlData?.signedUrl || null
+
+    // Merge extracted_fields from document into metadata for comparison
+    const metadataWithFields = {
+      ...versionData.metadata,
+      extracted_fields: documentData.extracted_fields || versionData.metadata?.extracted_fields || {},
+    }
 
     const formattedVersion = {
       id: versionData.id,
@@ -148,7 +156,7 @@ export async function GET(
       uploaded_by_name: null, // Can be enhanced later with profiles join if needed
       uploaded_at: versionData.uploaded_at,
       change_summary: versionData.change_summary,
-      metadata: versionData.metadata,
+      metadata: metadataWithFields,
       document: {
         id: documentData.id,
         file_name: documentData.file_name,
@@ -157,6 +165,8 @@ export async function GET(
         download_url: downloadUrl,
       },
     }
+
+    console.log(`✅ Returning version ${versionId} with extracted_fields:`, Object.keys(metadataWithFields.extracted_fields || {}).length, 'fields')
 
     return NextResponse.json({
       success: true,

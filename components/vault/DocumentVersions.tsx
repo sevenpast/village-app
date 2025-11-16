@@ -339,20 +339,26 @@ function VersionComparison({
   const loadVersions = async () => {
     setLoading(true)
     try {
+      console.log(`🔍 Loading versions for comparison: versionId1=${versionId1}, versionId2=${versionId2}, documentId=${documentId}`)
+      
       const [res1, res2] = await Promise.all([
         fetch(`/api/vault/documents/${documentId}/versions/${versionId1}`),
         fetch(`/api/vault/documents/${documentId}/versions/${versionId2}`),
       ])
 
+      console.log(`📊 Response status: res1=${res1.status} ${res1.statusText}, res2=${res2.status} ${res2.statusText}`)
+
       if (res1.ok && res2.ok) {
         const data1 = await res1.json()
         const data2 = await res2.json()
+        console.log(`✅ Loaded versions:`, { version1: data1.version, version2: data2.version })
         setVersion1(data1.version)
         setVersion2(data2.version)
       } else {
-        const error1 = await res1.json().catch(() => ({}))
-        const error2 = await res2.json().catch(() => ({}))
-        throw new Error(error1.error || error2.error || 'Failed to load versions for comparison')
+        const error1 = await res1.json().catch(() => ({ error: `HTTP ${res1.status}: ${res1.statusText}` }))
+        const error2 = await res2.json().catch(() => ({ error: `HTTP ${res2.status}: ${res2.statusText}` }))
+        console.error(`❌ Failed to load versions:`, { error1, error2 })
+        throw new Error(error1.error || error2.error || `Failed to load versions: ${res1.status} / ${res2.status}`)
       }
     } catch (error) {
       console.error('Error loading versions for comparison:', error)
