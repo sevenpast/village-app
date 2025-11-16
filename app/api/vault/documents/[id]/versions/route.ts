@@ -240,20 +240,28 @@ export async function GET(
       )
     }
 
-    // Format versions - only one version per version_number should exist
-    // Group by version_number to ensure uniqueness
+    // Format versions - ensure we show the right version entry for each version number
+    // When there are multiple entries with the same version_number, choose based on:
+    // 1. If viewing parent document (documentId === parentDocumentId): Keep the one WITHOUT new_document_id for Version 1
+    // 2. For other versions: Keep the one WITH new_document_id (represents the link to child document)
     const versionMap = new Map<number, any>()
     
     for (const version of versions || []) {
       const versionNum = version.version_number
-      // If we already have a version with this number, keep the one that is_current
       if (!versionMap.has(versionNum)) {
         versionMap.set(versionNum, version)
       } else {
         const existing = versionMap.get(versionNum)
-        // Prefer the one that is_current
-        if (version.is_current && !existing.is_current) {
-          versionMap.set(versionNum, version)
+        // For Version 1: Prefer the one WITHOUT new_document_id (it's the original)
+        if (versionNum === 1) {
+          if (!version.metadata?.new_document_id && existing.metadata?.new_document_id) {
+            versionMap.set(versionNum, version)
+          }
+        } else {
+          // For Version 2+: Prefer the one WITH new_document_id (it links to the new document)
+          if (version.metadata?.new_document_id && !existing.metadata?.new_document_id) {
+            versionMap.set(versionNum, version)
+          }
         }
       }
     }
