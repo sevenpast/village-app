@@ -38,6 +38,7 @@ export async function GET(
     }
 
     // Get specific version by ID (versionId is unique)
+    console.log(`🔍 Looking for version ${versionId} for document ${documentId}`)
     const { data: version, error } = await supabase
       .from('document_versions')
       .select(`
@@ -55,11 +56,14 @@ export async function GET(
       .single()
 
     if (error || !version) {
+      console.error(`❌ Version ${versionId} not found:`, error?.message || 'No version returned')
       return NextResponse.json(
         { error: 'Version not found', details: error?.message },
         { status: 404 }
       )
     }
+
+    console.log(`✅ Found version ${versionId}: document_id=${version.document_id}, version_number=${version.version_number}`)
 
     // Type assertion for version
     const versionData = version as {
@@ -86,13 +90,17 @@ export async function GET(
       versionData.metadata?.parent_document_id,
     ].filter(Boolean) as string[]
 
-    const { data: userDocuments } = await supabase
+    console.log(`🔍 Checking ownership for document IDs:`, documentIdsToCheck)
+    const { data: userDocuments, error: ownershipError } = await supabase
       .from('documents')
       .select('id')
       .in('id', documentIdsToCheck)
       .eq('user_id', user.id)
 
+    console.log(`📊 User owns ${userDocuments?.length || 0} of ${documentIdsToCheck.length} documents`)
+
     if (!userDocuments || userDocuments.length === 0) {
+      console.error(`❌ Access denied: User ${user.id} does not own any of the linked documents`)
       return NextResponse.json(
         { error: 'Version not found or access denied' },
         { status: 404 }
