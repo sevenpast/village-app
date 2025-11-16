@@ -107,16 +107,45 @@ export async function GET(request: NextRequest) {
               .getPublicUrl(doc.storage_path)
 
             // Get version count for this document
-            // Check both direct versions and versions where this document is referenced
+            // Find the parent document (the original document in the version chain)
+            // Both parent and child documents should show the same version count
             let versionCount = 0
             try {
-              const { count, error: versionError } = await supabase
+              // First, check if this document has versions directly linked to it
+              // (meaning it's the parent document)
+              const { count: directCount, error: directError } = await supabase
                 .from('document_versions')
                 .select('*', { count: 'exact', head: true })
-                .or(`document_id.eq.${doc.id},metadata->>new_document_id.eq.${doc.id},metadata->>parent_document_id.eq.${doc.id}`)
+                .eq('document_id', doc.id)
               
-              if (!versionError && typeof count === 'number') {
-                versionCount = count
+              if (!directError && typeof directCount === 'number' && directCount > 0) {
+                // This document is the parent, use its version count
+                versionCount = directCount
+              } else {
+                // This document might be a child (new version)
+                // Check if it's referenced in metadata as a new_document_id
+                const { data: versionWithNewDoc } = await supabase
+                  .from('document_versions')
+                  .select('metadata, document_id')
+                  .eq('metadata->>new_document_id', doc.id)
+                  .limit(1)
+                  .single()
+                
+                if (versionWithNewDoc?.document_id) {
+                  // Found parent document ID
+                  const parentDocumentId = versionWithNewDoc.document_id
+                  
+                  // Count versions for the parent document
+                  const { count, error: versionError } = await supabase
+                    .from('document_versions')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('document_id', parentDocumentId)
+                  
+                  if (!versionError && typeof count === 'number') {
+                    versionCount = count
+                  }
+                }
+                // If no parent found, versionCount remains 0
               }
             } catch (versionCountError) {
               console.warn(`⚠️ Failed to get version count for document ${doc.id}:`, versionCountError)

@@ -64,6 +64,7 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
   // Form state
   const [formData, setFormData] = useState({
     address: '',
+    viewing_date: new Date().toISOString().split('T')[0], // Today's date as default
     rent_chf: '',
     contact_email: '',
     rating_condition: 0,
@@ -99,11 +100,16 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
       const response = await fetch(`/api/housing/viewings/${viewingId}`)
       if (response.ok) {
         const data = await response.json()
+        console.log('Loaded viewing details:', data.viewing)
+        console.log('Documents in viewing:', data.viewing.documents)
         // Update the viewing in the list with documents
         setViewings(prev => prev.map(v => v.id === viewingId ? { ...v, ...data.viewing } : v))
         if (selectedViewing?.id === viewingId) {
           setSelectedViewing(data.viewing)
         }
+      } else {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+        console.error('Failed to load viewing details:', errorData)
       }
     } catch (error) {
       console.error('Failed to load viewing details:', error)
@@ -131,26 +137,50 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
 
     setAttachingDocuments(true)
     try {
+      const documentIdsArray = Array.from(selectedDocumentIds)
+      console.log('Attaching documents:', documentIdsArray)
+      
       const response = await fetch(`/api/housing/viewings/${selectedViewing.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          document_ids: Array.from(selectedDocumentIds),
+          document_ids: documentIdsArray,
         }),
       })
 
+      const responseData = await response.json().catch(() => ({ error: 'Failed to parse response' }))
+      console.log('Attach documents response:', { status: response.status, data: responseData })
+
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to attach documents')
+        const errorMsg = responseData.error || responseData.details || `HTTP ${response.status}: ${response.statusText}`
+        console.error('Failed to attach documents:', responseData)
+        throw new Error(errorMsg)
       }
 
-      // Reload viewing details
+      // Reload viewing details immediately
+      console.log('Reloading viewing details after attaching documents...')
       await loadViewingDetails(selectedViewing.id)
+      
+      // Also reload the full viewing list to ensure consistency
+      await loadViewings()
+      
       setShowAttachDocumentsModal(false)
       setSelectedDocumentIds(new Set())
+      
+      // Show success message
       alert('Documents attached successfully!')
+      
+      // Force update selected viewing if it's still open
+      if (selectedViewing?.id) {
+        const updated = await fetch(`/api/housing/viewings/${selectedViewing.id}`)
+        if (updated.ok) {
+          const data = await updated.json()
+          console.log('Force reload viewing after attach:', data.viewing)
+          setSelectedViewing(data.viewing)
+        }
+      }
     } catch (error) {
       console.error('Error attaching documents:', error)
       alert(`Failed to attach documents: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -211,6 +241,7 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
     setEditingViewing(null)
     setFormData({
       address: '',
+      viewing_date: new Date().toISOString().split('T')[0], // Today's date as default
       rent_chf: '',
       contact_email: '',
       rating_condition: 0,
@@ -228,6 +259,7 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
     setEditingViewing(viewing)
     setFormData({
       address: viewing.address,
+      viewing_date: viewing.viewing_date || new Date().toISOString().split('T')[0],
       rent_chf: viewing.rent_chf?.toString() || '',
       contact_email: viewing.contact_email || '',
       rating_condition: viewing.rating_condition || 0,
@@ -264,7 +296,7 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
 
     const payload = {
       address: formData.address,
-      viewing_date: new Date().toISOString().split('T')[0], // Today's date as default
+      viewing_date: formData.viewing_date || new Date().toISOString().split('T')[0],
       rent_chf: formData.rent_chf ? parseInt(formData.rent_chf) : undefined,
       contact_email: formData.contact_email || undefined,
       rating_condition: formData.rating_condition > 0 ? formData.rating_condition : undefined,
@@ -296,13 +328,44 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
             photoFormData.append('photos', photo)
           })
 
-          const photoResponse = await fetch(`/api/housing/viewings/${viewingId}/photos`, {
-            method: 'POST',
-            body: photoFormData,
-          })
+          try {
+            const photoResponse = await fetch(`/api/housing/viewings/${viewingId}/photos`, {
+              method: 'POST',
+              body: photoFormData,
+            })
 
-          if (!photoResponse.ok) {
-            console.error('Failed to upload photos, but viewing was created')
+            let photoData: any = {}
+            try {
+              const text = await photoResponse.text()
+              if (text) {
+                photoData = JSON.parse(text)
+              }
+            } catch (parseError) {
+              console.error('Failed to parse photo response:', parseError)
+              photoData = { error: 'Invalid response from server' }
+            }
+
+            if (!photoResponse.ok) {
+              const errorMsg = photoData.details || photoData.error || `HTTP ${photoResponse.status}: ${photoResponse.statusText}`
+              console.error('Failed to upload photos:', {
+                status: photoResponse.status,
+                statusText: photoResponse.statusText,
+                data: photoData
+              })
+              alert(`Viewing ${editingViewing ? 'updated' : 'created'} successfully, but failed to upload photos: ${errorMsg}`)
+            } else if (photoData.errors && photoData.errors.length > 0) {
+              // Partial success - some photos uploaded, some failed
+              const errorMsg = photoData.errors.join('\n')
+              console.warn('Some photos failed to upload:', photoData.errors)
+              alert(`Viewing ${editingViewing ? 'updated' : 'created'} successfully.\n\n${photoData.message}\n\nErrors:\n${errorMsg}`)
+            } else if (photoData.success) {
+              // Success - optionally show success message
+              console.log('Photos uploaded successfully:', photoData.message)
+            }
+          } catch (photoError) {
+            console.error('Error uploading photos:', photoError)
+            const errorMessage = photoError instanceof Error ? photoError.message : 'Unknown error'
+            alert(`Viewing ${editingViewing ? 'updated' : 'created'} successfully, but failed to upload photos: ${errorMessage}\n\nPlease try uploading them manually.`)
           }
         }
 
@@ -387,16 +450,25 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
       })
 
       if (response.ok) {
+        const uploadData = await response.json()
+        console.log('Photo upload response:', uploadData)
+        
         loadViewings()
         if (selectedViewing?.id === viewingId) {
           const updated = await fetch(`/api/housing/viewings/${viewingId}`)
           if (updated.ok) {
             const data = await updated.json()
+            console.log('Updated viewing data:', data.viewing)
+            console.log('Photos in viewing:', data.viewing.photos)
             setSelectedViewing(data.viewing)
+          } else {
+            console.error('Failed to reload viewing details after upload')
           }
         }
       } else {
-        alert('Failed to upload photos')
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+        console.error('Photo upload failed:', errorData)
+        alert(`Failed to upload photos: ${errorData.error || errorData.details || 'Unknown error'}`)
       }
     } catch (error) {
       console.error('Failed to upload photos:', error)
@@ -489,7 +561,12 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
               )}
 
               <div className="text-sm text-gray-600 space-y-1 mb-3">
-                <p>Date: {new Date(viewing.viewing_date).toLocaleDateString()}</p>
+                <p>Viewing Date: {new Date(viewing.viewing_date).toLocaleDateString()}</p>
+                {viewing.created_at && (
+                  <p className="text-xs text-gray-500">
+                    Created: {new Date(viewing.created_at).toLocaleDateString()}
+                  </p>
+                )}
                 {viewing.rent_chf && <p>Rent: CHF {viewing.rent_chf.toLocaleString()}</p>}
                 {viewing.room_count && <p>Rooms: {viewing.room_count}</p>}
                 {viewing.photos && viewing.photos.length > 0 && (
@@ -556,6 +633,20 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
                   className="w-full px-3 py-2 border rounded-lg"
                   style={{ borderColor: '#E5E7EB' }}
                   placeholder="e.g., Hauptstrasse 123, 8001 Zürich"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Viewing Date <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={formData.viewing_date}
+                  onChange={(e) => setFormData({ ...formData, viewing_date: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                  style={{ borderColor: '#E5E7EB' }}
                 />
               </div>
 
@@ -697,6 +788,12 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
                   <p className="text-sm text-gray-600">Viewing Date</p>
                   <p className="font-medium">{new Date(selectedViewing.viewing_date).toLocaleDateString()}</p>
                 </div>
+                {selectedViewing.created_at && (
+                  <div>
+                    <p className="text-sm text-gray-600">Created</p>
+                    <p className="font-medium text-sm">{new Date(selectedViewing.created_at).toLocaleDateString()}</p>
+                  </div>
+                )}
                 {selectedViewing.rent_chf && (
                   <div>
                     <p className="text-sm text-gray-600">Rent</p>
@@ -721,6 +818,74 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
                   </div>
                 )}
               </div>
+
+              {/* Detailed Ratings */}
+              {(selectedViewing.rating_condition || 
+                selectedViewing.rating_neighborhood || 
+                selectedViewing.rating_commute || 
+                selectedViewing.rating_amenities || 
+                selectedViewing.rating_value) && (
+                <div>
+                  <h4 className="font-semibold mb-3" style={{ color: '#2D5016' }}>Detailed Ratings</h4>
+                  <div className="space-y-3">
+                    {selectedViewing.rating_condition && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-700">Overall condition & charm</span>
+                        <div className="flex items-center gap-2">
+                          {renderStars(selectedViewing.rating_condition)}
+                          <span className="text-sm text-gray-600 w-8 text-right">
+                            {selectedViewing.rating_condition}/5
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    {selectedViewing.rating_neighborhood && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-700">Neighborhood</span>
+                        <div className="flex items-center gap-2">
+                          {renderStars(selectedViewing.rating_neighborhood)}
+                          <span className="text-sm text-gray-600 w-8 text-right">
+                            {selectedViewing.rating_neighborhood}/5
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    {selectedViewing.rating_commute && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-700">Commute</span>
+                        <div className="flex items-center gap-2">
+                          {renderStars(selectedViewing.rating_commute)}
+                          <span className="text-sm text-gray-600 w-8 text-right">
+                            {selectedViewing.rating_commute}/5
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    {selectedViewing.rating_amenities && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-700">Amenities</span>
+                        <div className="flex items-center gap-2">
+                          {renderStars(selectedViewing.rating_amenities)}
+                          <span className="text-sm text-gray-600 w-8 text-right">
+                            {selectedViewing.rating_amenities}/5
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    {selectedViewing.rating_value && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-700">Value for money</span>
+                        <div className="flex items-center gap-2">
+                          {renderStars(selectedViewing.rating_value)}
+                          <span className="text-sm text-gray-600 w-8 text-right">
+                            {selectedViewing.rating_value}/5
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Contact Info */}
               {(selectedViewing.contact_person || selectedViewing.contact_email || selectedViewing.contact_phone) && (
@@ -769,21 +934,32 @@ export default function ApartmentViewings({ userId }: ApartmentViewingsProps) {
 
                 {selectedViewing.photos && selectedViewing.photos.length > 0 ? (
                   <div className="grid grid-cols-3 gap-4">
-                    {selectedViewing.photos.map((photo) => (
-                      <div key={photo.id} className="relative group">
-                        <img
-                          src={photo.thumbnail_url || photo.storage_path}
-                          alt={photo.file_name}
-                          className="w-full h-32 object-cover rounded-lg"
-                        />
-                        <button
-                          onClick={() => handleDeletePhoto(selectedViewing.id, photo.id)}
-                          className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
+                    {selectedViewing.photos.map((photo) => {
+                      const imageUrl = photo.thumbnail_url || photo.storage_path
+                      console.log('Rendering photo:', { id: photo.id, url: imageUrl, fileName: photo.file_name })
+                      return (
+                        <div key={photo.id} className="relative group">
+                          <img
+                            src={imageUrl}
+                            alt={photo.file_name}
+                            className="w-full h-32 object-cover rounded-lg"
+                            onError={(e) => {
+                              console.error('Image load error:', { photo, url: imageUrl })
+                              e.currentTarget.style.display = 'none'
+                            }}
+                            onLoad={() => {
+                              console.log('Image loaded successfully:', imageUrl)
+                            }}
+                          />
+                          <button
+                            onClick={() => handleDeletePhoto(selectedViewing.id, photo.id)}
+                            className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )
+                    })}
                   </div>
                 ) : (
                   <p className="text-gray-500 text-sm">No photos uploaded yet</p>
