@@ -146,12 +146,27 @@ export default function DocumentVersions({
             </h2>
             <p className="text-sm text-gray-600 mt-1">{documentName}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-700 transition-colors"
-          >
-            <X className="w-6 h-6" />
-          </button>
+          <div className="flex items-center gap-3">
+            {versions.length > 1 && (
+              <button
+                onClick={() => {
+                  // Compare oldest (first) with newest (last)
+                  handleCompareVersions(versions[0].id, versions[versions.length - 1].id)
+                }}
+                className="px-4 py-2 text-sm rounded border transition-colors hover:bg-gray-50"
+                style={{ borderColor: '#2D5016', color: '#2D5016' }}
+                title="Compare oldest with newest version"
+              >
+                Compare Versions
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="text-gray-500 hover:text-gray-700 transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -217,25 +232,37 @@ export default function DocumentVersions({
 
                     <div className="flex gap-2 ml-4">
                       {!version.is_current && (
+                        <button
+                          onClick={() => handleRestoreVersion(version.id)}
+                          disabled={restoring === version.id}
+                          className="px-3 py-2 text-sm rounded border transition-colors hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          style={{ borderColor: '#2D5016', color: '#2D5016' }}
+                          title="Restore this version"
+                        >
+                          <RotateCcw className="w-4 h-4 inline mr-1" />
+                          {restoring === version.id ? 'Restoring...' : 'Restore'}
+                        </button>
+                      )}
+                      {versions.length > 1 && (
                         <>
-                          <button
-                            onClick={() => handleRestoreVersion(version.id)}
-                            disabled={restoring === version.id}
-                            className="px-3 py-2 text-sm rounded border transition-colors hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                            style={{ borderColor: '#2D5016', color: '#2D5016' }}
-                            title="Restore this version"
-                          >
-                            <RotateCcw className="w-4 h-4 inline mr-1" />
-                            {restoring === version.id ? 'Restoring...' : 'Restore'}
-                          </button>
                           {index > 0 && (
                             <button
                               onClick={() => handleCompareVersions(versions[index - 1].id, version.id)}
                               className="px-3 py-2 text-sm rounded border transition-colors hover:bg-gray-50"
                               style={{ borderColor: '#2D5016', color: '#2D5016' }}
-                              title={`Compare with Version ${versions[index - 1].version_number}`}
+                              title={`Compare Version ${versions[index - 1].version_number} with Version ${version.version_number}`}
                             >
-                              Compare
+                              Compare with Previous
+                            </button>
+                          )}
+                          {index < versions.length - 1 && (
+                            <button
+                              onClick={() => handleCompareVersions(version.id, versions[index + 1].id)}
+                              className="px-3 py-2 text-sm rounded border transition-colors hover:bg-gray-50"
+                              style={{ borderColor: '#2D5016', color: '#2D5016' }}
+                              title={`Compare Version ${version.version_number} with Version ${versions[index + 1].version_number}`}
+                            >
+                              Compare with Next
                             </button>
                           )}
                         </>
