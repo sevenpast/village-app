@@ -26,6 +26,22 @@ interface DocumentVaultProps {
   userId: string
 }
 
+// Helper function to convert number to ordinal (1st, 2nd, 3rd, etc.)
+function getOrdinalSuffix(num: number): string {
+  const j = num % 10
+  const k = num % 100
+  if (j === 1 && k !== 11) {
+    return num + 'st'
+  }
+  if (j === 2 && k !== 12) {
+    return num + 'nd'
+  }
+  if (j === 3 && k !== 13) {
+    return num + 'rd'
+  }
+  return num + 'th'
+}
+
 export default function DocumentVault({ userId }: DocumentVaultProps) {
   const [documents, setDocuments] = useState<Document[]>([])
   const [filteredDocuments, setFilteredDocuments] = useState<Document[]>([])
@@ -897,7 +913,7 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
                   </h3>
                   {typeof doc.version_count === 'number' && doc.version_count > 0 && (
                     <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700 font-medium">
-                      {doc.version_count} version{doc.version_count !== 1 ? 's' : ''}
+                      {getOrdinalSuffix(doc.version_count)} version
                     </span>
                   )}
                 </div>
