@@ -22,23 +22,9 @@ export async function GET(
       )
     }
 
-    // Verify document ownership
-    const { data: document } = await supabase
-      .from('documents')
-      .select('id')
-      .eq('id', documentId)
-      .eq('user_id', user.id)
-      .single()
-
-    if (!document) {
-      return NextResponse.json(
-        { error: 'Document not found' },
-        { status: 404 }
-      )
-    }
-
     // Get specific version by ID (versionId is unique)
-    console.log(`🔍 Looking for version ${versionId} for document ${documentId}`)
+    // We don't need to check documentId ownership first - we'll check version ownership instead
+    console.log(`🔍 Looking for version ${versionId} (documentId in URL: ${documentId})`)
     const { data: version, error } = await supabase
       .from('document_versions')
       .select(`
