@@ -111,7 +111,7 @@ export async function GET(
     // Get the actual document to retrieve download URL, extracted_fields, and extracted_text
     const { data: versionDocument, error: docError } = await supabase
       .from('documents')
-      .select('id, file_name, mime_type, file_size, storage_path, extracted_fields, extracted_text')
+      .select('id, file_name, mime_type, file_size, storage_path, extracted_fields, extracted_text, processing_status')
       .eq('id', versionDocumentId)
       .eq('user_id', user.id)
       .single()
@@ -125,7 +125,7 @@ export async function GET(
     }
 
     // Type assertion for document
-    const documentData = versionDocument as {
+    let documentData = versionDocument as {
       id: string
       file_name: string
       mime_type: string | null
@@ -133,6 +133,52 @@ export async function GET(
       storage_path: string
       extracted_fields: Record<string, any> | null
       extracted_text: string | null
+      processing_status: string | null
+    }
+
+    // If extracted_text is missing and document is a PDF, try to extract it now
+    if (!documentData.extracted_text && documentData.mime_type === 'application/pdf' && documentData.processing_status !== 'processing') {
+      console.log(`📄 No extracted_text found for document ${versionDocumentId}, attempting extraction...`)
+      try {
+        // Import DocumentProcessor dynamically
+        const { DocumentProcessor } = await import('@/lib/vault/document-processor')
+        
+        // Download file from storage
+        const { data: fileData, error: downloadError } = await supabase.storage
+          .from('documents')
+          .download(documentData.storage_path)
+
+        if (!downloadError && fileData) {
+          const buffer = Buffer.from(await fileData.arrayBuffer())
+          const processor = new DocumentProcessor()
+          const processed = await processor.processDocument(
+            buffer,
+            documentData.file_name,
+            documentData.mime_type || 'application/pdf'
+          )
+
+          if (processed.extractedText && processed.extractedText.length > 0) {
+            // Update document with extracted text
+            const { error: updateError } = (await supabase
+              .from('documents')
+              .update({
+                extracted_text: processed.extractedText.substring(0, 50000), // Limit text size
+                processing_status: 'completed',
+              } as never)
+              .eq('id', versionDocumentId)) as { error: any }
+
+            if (!updateError) {
+              documentData.extracted_text = processed.extractedText.substring(0, 50000)
+              console.log(`✅ Extracted and saved ${documentData.extracted_text.length} characters for document ${versionDocumentId}`)
+            } else {
+              console.warn(`⚠️ Failed to save extracted text: ${updateError.message}`)
+            }
+          }
+        }
+      } catch (extractionError) {
+        console.warn(`⚠️ Failed to extract text on-the-fly: ${extractionError instanceof Error ? extractionError.message : String(extractionError)}`)
+        // Continue without extracted_text - comparison will still work with extracted_fields
+      }
     }
 
     // Generate download URL (signed URL for private bucket)
