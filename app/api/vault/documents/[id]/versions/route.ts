@@ -223,6 +223,11 @@ export async function GET(
       .eq('document_id', parentDocumentId)
       .order('version_number', { ascending: true }) // Sort ascending: 1, 2, 3...
 
+    console.log(`📊 Found ${versions?.length || 0} versions for parentDocumentId ${parentDocumentId}:`)
+    versions?.forEach((v: any) => {
+      console.log(`  - Version ${v.version_number}: id=${v.id}, new_document_id=${v.metadata?.new_document_id || 'null'}, is_current=${v.is_current}`)
+    })
+
     if (error) {
       console.error('❌ Error fetching versions:', error)
       // Check if table doesn't exist
@@ -242,8 +247,9 @@ export async function GET(
 
     // Format versions - ensure we show the right version entry for each version number
     // When there are multiple entries with the same version_number, choose based on:
-    // 1. If viewing parent document (documentId === parentDocumentId): Keep the one WITHOUT new_document_id for Version 1
-    // 2. For other versions: Keep the one WITH new_document_id (represents the link to child document)
+    // 1. For Version 1: Prefer the one WITHOUT new_document_id (it's the original)
+    //    If both have new_document_id, prefer the one that was created first (lower ID or earlier uploaded_at)
+    // 2. For Version 2+: Prefer the one WITH new_document_id (it links to the new document)
     const versionMap = new Map<number, any>()
     
     for (const version of versions || []) {
@@ -254,17 +260,48 @@ export async function GET(
         const existing = versionMap.get(versionNum)
         // For Version 1: Prefer the one WITHOUT new_document_id (it's the original)
         if (versionNum === 1) {
-          if (!version.metadata?.new_document_id && existing.metadata?.new_document_id) {
+          const versionHasNewDoc = !!version.metadata?.new_document_id
+          const existingHasNewDoc = !!existing.metadata?.new_document_id
+          
+          if (!versionHasNewDoc && existingHasNewDoc) {
+            // This version has no new_document_id, prefer it
             versionMap.set(versionNum, version)
+          } else if (versionHasNewDoc && !existingHasNewDoc) {
+            // Existing has no new_document_id, keep it
+            // Don't change
+          } else {
+            // Both have or both don't have new_document_id - prefer the one with earlier uploaded_at
+            const versionDate = new Date(version.uploaded_at).getTime()
+            const existingDate = new Date(existing.uploaded_at).getTime()
+            if (versionDate < existingDate) {
+              versionMap.set(versionNum, version)
+            }
           }
         } else {
           // For Version 2+: Prefer the one WITH new_document_id (it links to the new document)
-          if (version.metadata?.new_document_id && !existing.metadata?.new_document_id) {
+          const versionHasNewDoc = !!version.metadata?.new_document_id
+          const existingHasNewDoc = !!existing.metadata?.new_document_id
+          
+          if (versionHasNewDoc && !existingHasNewDoc) {
+            // This version has new_document_id, prefer it
             versionMap.set(versionNum, version)
+          } else if (!versionHasNewDoc && existingHasNewDoc) {
+            // Existing has new_document_id, keep it
+            // Don't change
+          } else {
+            // Both have or both don't have new_document_id - prefer the one with new_document_id if available
+            if (versionHasNewDoc) {
+              versionMap.set(versionNum, version)
+            }
           }
         }
       }
     }
+    
+    console.log(`\n🔄 After deduplication, ${versionMap.size} unique versions:`)
+    Array.from(versionMap.values()).forEach((v: any) => {
+      console.log(`  - Version ${v.version_number}: id=${v.id}, new_document_id=${v.metadata?.new_document_id || 'null'}`)
+    })
     
     const formattedVersions = Array.from(versionMap.values()).map((version: any) => {
       // Check if this version represents the document being viewed
@@ -276,16 +313,15 @@ export async function GET(
       let isViewing = false
       
       if (documentId === parentDocumentId) {
-        // Viewing the parent document - Version 1 is the one being viewed
-        // Version 1 has no new_document_id in metadata (it's the original)
-        isViewing = version.version_number === 1 && !version.metadata?.new_document_id
+        // Viewing the parent document - Version 1 is always the one being viewed
+        isViewing = version.version_number === 1
       } else {
         // Viewing a child document - find the version that references this document
         // The version with new_document_id matching documentId is the one being viewed
         isViewing = version.metadata?.new_document_id === documentId
       }
       
-      console.log(`  Version ${version.version_number}: document_id=${version.document_id}, new_document_id=${version.metadata?.new_document_id}, isViewing=${isViewing}`)
+      console.log(`  ✅ Version ${version.version_number}: document_id=${version.document_id}, new_document_id=${version.metadata?.new_document_id || 'null'}, isViewing=${isViewing}, documentId=${documentId}, parentDocumentId=${parentDocumentId}`)
       
       return {
         id: version.id,
