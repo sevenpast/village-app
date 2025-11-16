@@ -123,6 +123,11 @@ export async function POST(
 /**
  * GET /api/vault/documents/[id]/versions
  * List all versions for a document
+ * 
+ * Clean implementation:
+ * 1. Find the parent document (original document with same filename)
+ * 2. Get all versions for the parent document
+ * 3. Mark which version corresponds to the document being viewed
  */
 export async function GET(
   request: NextRequest,
@@ -144,7 +149,7 @@ export async function GET(
     // Verify document ownership
     const { data: document } = await supabase
       .from('documents')
-      .select('id')
+      .select('id, file_name')
       .eq('id', documentId)
       .eq('user_id', user.id)
       .single()
@@ -156,57 +161,23 @@ export async function GET(
       )
     }
 
-    // Get all versions for this document
-    // This includes:
-    // 1. Versions directly linked to this document (document_id = documentId)
-    // 2. Versions where this document is referenced in metadata.new_document_id
-    // 3. Versions where this document is referenced in metadata.parent_document_id
-    const { data: allVersions, error: fetchError } = await supabase
+    // Step 1: Find the parent document ID
+    // Check if this document is referenced as a child (has parent_document_id in metadata)
+    const { data: childVersion } = await supabase
       .from('document_versions')
-      .select(`
-        id,
-        version_number,
-        parent_version_id,
-        is_current,
-        uploaded_by,
-        uploaded_at,
-        change_summary,
-        metadata,
-        document_id
-      `)
-      .or(`document_id.eq.${documentId},metadata->>new_document_id.eq.${documentId},metadata->>parent_document_id.eq.${documentId}`)
+      .select('metadata')
+      .eq('document_id', documentId)
+      .not('metadata->>parent_document_id', 'is', null)
+      .limit(1)
+      .single()
 
-    if (fetchError) {
-      console.error('❌ Error fetching versions:', fetchError)
-      // Check if table doesn't exist
-      if (fetchError.message?.includes('relation') || fetchError.message?.includes('does not exist')) {
-        return NextResponse.json({
-          success: true,
-          versions: [],
-          count: 0,
-          message: 'Versions feature not yet initialized. Please run migration 049_create_document_versions.sql',
-        })
-      }
-      return NextResponse.json(
-        { error: 'Failed to fetch versions', details: fetchError.message },
-        { status: 500 }
-      )
-    }
-
-    // Group versions by the parent document (the original document with the same filename)
-    // Find the parent document ID (either this document or the one referenced in metadata)
     let parentDocumentId = documentId
-    const versionWithParent = allVersions?.find((v: any) => 
-      v.metadata?.parent_document_id && v.metadata.parent_document_id !== documentId
-    )
-    if (versionWithParent?.metadata?.parent_document_id) {
-      parentDocumentId = versionWithParent.metadata.parent_document_id
+    if (childVersion?.metadata?.parent_document_id) {
+      parentDocumentId = childVersion.metadata.parent_document_id
     }
-    
-    console.log(`📄 Versions API: documentId=${documentId}, parentDocumentId=${parentDocumentId}, allVersions count=${allVersions?.length || 0}`)
 
-    // Get all versions for the parent document only (not linked documents)
-    // Only return versions where document_id matches the parent document
+    // Step 2: Get all versions for the parent document
+    // Only get versions where document_id matches the parent document
     const { data: versions, error } = await supabase
       .from('document_versions')
       .select(`
@@ -221,15 +192,9 @@ export async function GET(
         document_id
       `)
       .eq('document_id', parentDocumentId)
-      .order('version_number', { ascending: true }) // Sort ascending: 1, 2, 3...
-
-    console.log(`📊 Found ${versions?.length || 0} versions for parentDocumentId ${parentDocumentId}:`)
-    versions?.forEach((v: any) => {
-      console.log(`  - Version ${v.version_number}: id=${v.id}, new_document_id=${v.metadata?.new_document_id || 'null'}, is_current=${v.is_current}`)
-    })
+      .order('version_number', { ascending: true })
 
     if (error) {
-      console.error('❌ Error fetching versions:', error)
       // Check if table doesn't exist
       if (error.message?.includes('relation') || error.message?.includes('does not exist')) {
         return NextResponse.json({
@@ -245,84 +210,57 @@ export async function GET(
       )
     }
 
-    // Format versions - ensure we show the right version entry for each version number
-    // When there are multiple entries with the same version_number, choose based on:
-    // 1. For Version 1: Prefer the one WITHOUT new_document_id (it's the original)
-    //    If both have new_document_id, prefer the one that was created first (lower ID or earlier uploaded_at)
-    // 2. For Version 2+: Prefer the one WITH new_document_id (it links to the new document)
+    if (!versions || versions.length === 0) {
+      return NextResponse.json({
+        success: true,
+        versions: [],
+        count: 0,
+      })
+    }
+
+    // Step 3: Deduplicate versions by version_number
+    // For each version_number, keep only one entry:
+    // - Version 1: Keep entry WITHOUT new_document_id (the original)
+    // - Version 2+: Keep entry WITH new_document_id (links to child document)
     const versionMap = new Map<number, any>()
     
-    for (const version of versions || []) {
+    for (const version of versions) {
       const versionNum = version.version_number
+      const hasNewDocId = !!version.metadata?.new_document_id
+      
       if (!versionMap.has(versionNum)) {
         versionMap.set(versionNum, version)
       } else {
         const existing = versionMap.get(versionNum)
-        // For Version 1: Prefer the one WITHOUT new_document_id (it's the original)
+        const existingHasNewDocId = !!existing.metadata?.new_document_id
+        
         if (versionNum === 1) {
-          const versionHasNewDoc = !!version.metadata?.new_document_id
-          const existingHasNewDoc = !!existing.metadata?.new_document_id
-          
-          if (!versionHasNewDoc && existingHasNewDoc) {
-            // This version has no new_document_id, prefer it
+          // Version 1: Prefer entry WITHOUT new_document_id
+          if (!hasNewDocId && existingHasNewDocId) {
             versionMap.set(versionNum, version)
-          } else if (versionHasNewDoc && !existingHasNewDoc) {
-            // Existing has no new_document_id, keep it
-            // Don't change
-          } else {
-            // Both have or both don't have new_document_id - prefer the one with earlier uploaded_at
-            const versionDate = new Date(version.uploaded_at).getTime()
-            const existingDate = new Date(existing.uploaded_at).getTime()
-            if (versionDate < existingDate) {
-              versionMap.set(versionNum, version)
-            }
           }
         } else {
-          // For Version 2+: Prefer the one WITH new_document_id (it links to the new document)
-          const versionHasNewDoc = !!version.metadata?.new_document_id
-          const existingHasNewDoc = !!existing.metadata?.new_document_id
-          
-          if (versionHasNewDoc && !existingHasNewDoc) {
-            // This version has new_document_id, prefer it
+          // Version 2+: Prefer entry WITH new_document_id
+          if (hasNewDocId && !existingHasNewDocId) {
             versionMap.set(versionNum, version)
-          } else if (!versionHasNewDoc && existingHasNewDoc) {
-            // Existing has new_document_id, keep it
-            // Don't change
-          } else {
-            // Both have or both don't have new_document_id - prefer the one with new_document_id if available
-            if (versionHasNewDoc) {
-              versionMap.set(versionNum, version)
-            }
           }
         }
       }
     }
-    
-    console.log(`\n🔄 After deduplication, ${versionMap.size} unique versions:`)
-    Array.from(versionMap.values()).forEach((v: any) => {
-      console.log(`  - Version ${v.version_number}: id=${v.id}, new_document_id=${v.metadata?.new_document_id || 'null'}`)
-    })
-    
+
+    // Step 4: Format versions and mark which one is being viewed
     const formattedVersions = Array.from(versionMap.values()).map((version: any) => {
-      // Check if this version represents the document being viewed
-      // Case 1: If viewing the parent document (documentId === parentDocumentId)
-      //   - Version 1 (original) has document_id === parentDocumentId and no new_document_id in metadata
-      //   - Version 2+ has document_id === parentDocumentId and new_document_id in metadata (pointing to child document)
-      // Case 2: If viewing a child document (documentId !== parentDocumentId)
-      //   - The version with metadata.new_document_id === documentId is the one being viewed
+      // Determine if this version represents the document being viewed
       let isViewing = false
       
       if (documentId === parentDocumentId) {
-        // Viewing the parent document - Version 1 is always the one being viewed
+        // Viewing parent document: Version 1 is being viewed
         isViewing = version.version_number === 1
       } else {
-        // Viewing a child document - find the version that references this document
-        // The version with new_document_id matching documentId is the one being viewed
+        // Viewing child document: Find version that references this document
         isViewing = version.metadata?.new_document_id === documentId
       }
-      
-      console.log(`  ✅ Version ${version.version_number}: document_id=${version.document_id}, new_document_id=${version.metadata?.new_document_id || 'null'}, isViewing=${isViewing}, documentId=${documentId}, parentDocumentId=${parentDocumentId}`)
-      
+
       return {
         id: version.id,
         document_id: version.document_id,
@@ -331,14 +269,14 @@ export async function GET(
         is_current: version.is_current,
         is_viewing: isViewing,
         uploaded_by: version.uploaded_by,
-        uploaded_by_name: null, // Can be enhanced later with profiles join if needed
+        uploaded_by_name: null,
         uploaded_at: version.uploaded_at,
         change_summary: version.change_summary,
         metadata: version.metadata,
       }
     })
-    
-    // Sort by version number ascending (1, 2, 3...) so oldest is first
+
+    // Sort by version number (already sorted by query, but ensure it)
     formattedVersions.sort((a, b) => a.version_number - b.version_number)
 
     return NextResponse.json({
@@ -357,4 +295,3 @@ export async function GET(
     )
   }
 }
-

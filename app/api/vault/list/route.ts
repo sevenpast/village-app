@@ -107,50 +107,51 @@ export async function GET(request: NextRequest) {
               .getPublicUrl(doc.storage_path)
 
             // Get version info for this document
-            // Need both: version_count (total versions) and version_number (this document's version)
+            // Clean implementation:
+            // 1. Check if document is parent (has versions with document_id = doc.id)
+            // 2. If parent: version_number = 1, version_count = number of versions
+            // 3. If child: find version entry that references this document, get version_number from there
             let versionCount = 0
             let versionNumber: number | null = null
+            
             try {
-              // First, check if this document has versions directly linked to it
-              // (meaning it's the parent document = Version 1)
-              const { data: directVersions, error: directError } = await supabase
+              // Check if this document is a parent (has versions directly linked)
+              const { data: parentVersions, error: parentError } = await supabase
                 .from('document_versions')
-                .select('*')
+                .select('version_number')
                 .eq('document_id', doc.id)
               
-              if (!directError && directVersions && directVersions.length > 0) {
-                // This document is the parent = Version 1
-                versionCount = directVersions.length
+              if (!parentError && parentVersions && parentVersions.length > 0) {
+                // This is the parent document = Version 1
                 versionNumber = 1
+                versionCount = parentVersions.length
               } else {
-                // This document might be a child (Version 2+)
-                // Check if it's referenced in metadata as a new_document_id
-                const { data: versionWithNewDoc } = await supabase
+                // This might be a child document
+                // Find the version entry that references this document as new_document_id
+                const { data: childVersion, error: childError } = await supabase
                   .from('document_versions')
-                  .select('version_number, metadata, document_id')
+                  .select('version_number, document_id')
                   .eq('metadata->>new_document_id', doc.id)
                   .limit(1)
                   .single()
                 
-                if (versionWithNewDoc?.document_id) {
-                  // Found parent document ID and this document's version number
-                  const parentDocumentId = versionWithNewDoc.document_id
-                  versionNumber = versionWithNewDoc.version_number
+                if (!childError && childVersion) {
+                  // Found: this document is a child version
+                  versionNumber = childVersion.version_number
                   
-                  // Count versions for the parent document
-                  const { count, error: versionError } = await supabase
+                  // Count total versions for the parent document
+                  const { count, error: countError } = await supabase
                     .from('document_versions')
                     .select('*', { count: 'exact', head: true })
-                    .eq('document_id', parentDocumentId)
+                    .eq('document_id', childVersion.document_id)
                   
-                  if (!versionError && typeof count === 'number') {
+                  if (!countError && typeof count === 'number') {
                     versionCount = count
                   }
                 }
-                // If no parent found, versionCount and versionNumber remain 0/null
               }
-            } catch (versionCountError) {
-              console.warn(`⚠️ Failed to get version info for document ${doc.id}:`, versionCountError)
+            } catch (error) {
+              // Silently fail - version info is optional
               versionCount = 0
               versionNumber = null
             }
