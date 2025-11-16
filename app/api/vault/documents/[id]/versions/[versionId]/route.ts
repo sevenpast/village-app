@@ -49,8 +49,6 @@ export async function GET(
       )
     }
 
-    console.log(`✅ Found version ${versionId}: document_id=${version.document_id}, version_number=${version.version_number}`)
-
     // Type assertion for version
     const versionData = version as {
       id: string
@@ -67,6 +65,8 @@ export async function GET(
       } | null
       document_id: string
     }
+
+    console.log(`✅ Found version ${versionId}: document_id=${versionData.document_id}, version_number=${versionData.version_number}`)
 
     // Verify that the user owns at least one of the documents linked to this version
     // Check: document_id, metadata.new_document_id, metadata.parent_document_id
