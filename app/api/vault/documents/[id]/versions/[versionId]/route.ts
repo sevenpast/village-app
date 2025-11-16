@@ -108,10 +108,10 @@ export async function GET(
       )
     }
     
-    // Get the actual document to retrieve download URL and extracted_fields
+    // Get the actual document to retrieve download URL, extracted_fields, and extracted_text
     const { data: versionDocument, error: docError } = await supabase
       .from('documents')
-      .select('id, file_name, mime_type, file_size, storage_path, extracted_fields')
+      .select('id, file_name, mime_type, file_size, storage_path, extracted_fields, extracted_text')
       .eq('id', versionDocumentId)
       .eq('user_id', user.id)
       .single()
@@ -132,6 +132,7 @@ export async function GET(
       file_size: number
       storage_path: string
       extracted_fields: Record<string, any> | null
+      extracted_text: string | null
     }
 
     // Generate download URL (signed URL for private bucket)
@@ -163,10 +164,11 @@ export async function GET(
         mime_type: documentData.mime_type,
         file_size: documentData.file_size,
         download_url: downloadUrl,
+        extracted_text: documentData.extracted_text || null, // Include extracted_text for text comparison
       },
     }
 
-    console.log(`✅ Returning version ${versionId} with extracted_fields:`, Object.keys(metadataWithFields.extracted_fields || {}).length, 'fields')
+    console.log(`✅ Returning version ${versionId} with extracted_fields:`, Object.keys(metadataWithFields.extracted_fields || {}).length, 'fields, extracted_text length:', documentData.extracted_text?.length || 0)
 
     return NextResponse.json({
       success: true,

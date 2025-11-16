@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Clock, RotateCcw, GitBranch, X, ChevronDown } from 'lucide-react'
+import { diff_match_patch } from 'diff-match-patch'
 
 interface DocumentVersion {
   id: string
@@ -328,7 +329,7 @@ function VersionComparison({
   const [version1, setVersion1] = useState<any>(null)
   const [version2, setVersion2] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'preview' | 'fields'>('preview')
+  const [activeTab, setActiveTab] = useState<'preview' | 'fields' | 'text'>('preview')
 
   useEffect(() => {
     if (isOpen) {
@@ -388,6 +389,27 @@ function VersionComparison({
     }
 
     return changes.sort((a, b) => a.field.localeCompare(b.field))
+  }
+
+  const compareText = (text1: string | null, text2: string | null) => {
+    if (!text1 && !text2) {
+      return { diffs: [], hasChanges: false }
+    }
+    
+    const textA = text1 || ''
+    const textB = text2 || ''
+    
+    if (textA === textB) {
+      return { diffs: [], hasChanges: false }
+    }
+
+    const dmp = new diff_match_patch()
+    const diffs = dmp.diff_main(textA, textB)
+    dmp.diff_cleanupSemantic(diffs) // Group related changes
+    
+    const hasChanges = diffs.some(diff => diff[0] !== 0) // 0 = EQUAL, -1 = DELETE, 1 = INSERT
+    
+    return { diffs, hasChanges }
   }
 
   const formatDate = (dateString: string) => {
@@ -475,6 +497,19 @@ function VersionComparison({
           >
             Extracted Fields {changes.length > 0 && `(${changes.length})`}
           </button>
+          {version1?.document?.extracted_text || version2?.document?.extracted_text ? (
+            <button
+              onClick={() => setActiveTab('text')}
+              className={`px-6 py-3 font-medium transition-colors ${
+                activeTab === 'text'
+                  ? 'border-b-2 text-gray-900'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+              style={activeTab === 'text' ? { borderBottomColor: '#2D5016', color: '#2D5016' } : {}}
+            >
+              Text Comparison
+            </button>
+          ) : null}
         </div>
 
         {/* Content */}
@@ -689,7 +724,109 @@ function VersionComparison({
                     </div>
                   )}
                 </div>
-              )}
+              ) : activeTab === 'text' ? (
+                <div className="space-y-4">
+                  {(() => {
+                    const textDiff = compareText(
+                      version1?.document?.extracted_text || null,
+                      version2?.document?.extracted_text || null
+                    )
+                    
+                    if (!textDiff.hasChanges && !version1?.document?.extracted_text && !version2?.document?.extracted_text) {
+                      return (
+                        <div className="text-center py-12">
+                          <p className="text-gray-500 text-lg mb-2">No text content available</p>
+                          <p className="text-sm text-gray-400">
+                            Neither version has extracted text content for comparison.
+                          </p>
+                        </div>
+                      )
+                    }
+                    
+                    if (!textDiff.hasChanges) {
+                      return (
+                        <div className="text-center py-12">
+                          <p className="text-gray-500 text-lg mb-2">No text changes detected</p>
+                          <p className="text-sm text-gray-400">
+                            The text content is identical between Version {version1.version_number} and Version {version2.version_number}.
+                          </p>
+                        </div>
+                      )
+                    }
+                    
+                    return (
+                      <>
+                        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                          <p className="text-sm text-gray-700">
+                            Text comparison showing word-level changes between versions.
+                          </p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-6">
+                          {/* Version 1 - Left Side */}
+                          <div className="flex flex-col">
+                            <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded">
+                              <h4 className="font-semibold" style={{ color: '#2D5016' }}>
+                                Version {version1.version_number}
+                              </h4>
+                            </div>
+                            <div className="flex-1 border rounded-lg p-4 bg-white overflow-auto" style={{ borderColor: '#E5E7EB', minHeight: '400px', maxHeight: '600px' }}>
+                              <div className="font-mono text-sm whitespace-pre-wrap break-words">
+                                {textDiff.diffs.map((diff, idx) => {
+                                  const [operation, text] = diff
+                                  if (operation === 0) {
+                                    // EQUAL - show as normal text
+                                    return <span key={idx} className="text-gray-900">{text}</span>
+                                  } else if (operation === -1) {
+                                    // DELETE - show as red strikethrough
+                                    return (
+                                      <span key={idx} className="bg-red-100 text-red-800 line-through">
+                                        {text}
+                                      </span>
+                                    )
+                                  } else {
+                                    // INSERT - don't show in left column
+                                    return null
+                                  }
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Version 2 - Right Side */}
+                          <div className="flex flex-col">
+                            <div className="mb-2 p-2 bg-green-50 border border-green-200 rounded">
+                              <h4 className="font-semibold" style={{ color: '#2D5016' }}>
+                                Version {version2.version_number}
+                              </h4>
+                            </div>
+                            <div className="flex-1 border rounded-lg p-4 bg-white overflow-auto" style={{ borderColor: '#E5E7EB', minHeight: '400px', maxHeight: '600px' }}>
+                              <div className="font-mono text-sm whitespace-pre-wrap break-words">
+                                {textDiff.diffs.map((diff, idx) => {
+                                  const [operation, text] = diff
+                                  if (operation === 0) {
+                                    // EQUAL - show as normal text
+                                    return <span key={idx} className="text-gray-900">{text}</span>
+                                  } else if (operation === -1) {
+                                    // DELETE - don't show in right column
+                                    return null
+                                  } else {
+                                    // INSERT - show as green highlighted
+                                    return (
+                                      <span key={idx} className="bg-green-100 text-green-800 font-medium">
+                                        {text}
+                                      </span>
+                                    )
+                                  }
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    )
+                  })()}
+                </div>
+              ) : null}
             </>
           ) : (
             <div className="text-center py-12 text-gray-500">
