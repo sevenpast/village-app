@@ -69,3 +69,4 @@ COMMENT ON COLUMN public.document_reminders.deadline_date IS 'The actual deadlin
 COMMENT ON COLUMN public.document_reminders.status IS 'Reminder status: pending, sent, snoozed, completed, or cancelled';
 COMMENT ON COLUMN public.document_reminders.snoozed_until IS 'If reminder is snoozed, when to show it again';
 
+

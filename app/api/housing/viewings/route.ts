@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch viewings' }, { status: 500 })
     }
 
-    // Get document counts for each viewing (optional, for performance)
+    // Get document counts and generate public URLs for photos for each viewing
     const viewingsWithDocs = await Promise.all(
       (viewings || []).map(async (viewing) => {
         const { data: viewingDocs } = await supabase
@@ -40,8 +40,43 @@ export async function GET(request: NextRequest) {
           .select('document_id')
           .eq('viewing_id', viewing.id)
 
+        // Generate signed URLs for photos (bucket is private)
+        const photos = await Promise.all(
+          (viewing.viewing_photos || []).map(async (photo: any) => {
+            try {
+              const { data: signedUrlData, error: urlError } = await supabase.storage
+                .from('documents')
+                .createSignedUrl(photo.storage_path, 3600) // 1 hour expiry
+              
+              if (urlError) {
+                console.error(`Error creating signed URL for photo ${photo.id}:`, urlError)
+              }
+              
+              const photoUrl = signedUrlData?.signedUrl || null
+              
+              if (!photoUrl) {
+                console.warn(`No signed URL generated for photo ${photo.id}, storage_path: ${photo.storage_path}`)
+              }
+            
+              return {
+                ...photo,
+                thumbnail_url: photoUrl || photo.thumbnail_url || photo.storage_path,
+                storage_path: photo.storage_path,
+              }
+            } catch (error) {
+              console.error(`Error processing photo ${photo.id}:`, error)
+              return {
+                ...photo,
+                thumbnail_url: photo.thumbnail_url || photo.storage_path,
+                storage_path: photo.storage_path,
+              }
+            }
+          })
+        )
+
         return {
           ...viewing,
+          photos,
           document_count: viewingDocs?.length || 0,
         }
       })

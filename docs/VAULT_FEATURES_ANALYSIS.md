@@ -221,3 +221,4 @@
 - **Duplikat-Erkennung:** Muss implementiert werden
 - **Version Management:** Muss komplett neu gebaut werden
 
+

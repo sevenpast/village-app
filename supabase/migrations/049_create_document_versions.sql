@@ -143,3 +143,4 @@ COMMENT ON COLUMN public.document_versions.is_current IS 'Whether this is the cu
 COMMENT ON COLUMN public.document_versions.change_summary IS 'User-provided description of changes in this version';
 COMMENT ON COLUMN public.document_versions.metadata IS 'Additional version metadata (file_size, mime_type, extracted_fields snapshot, etc.)';
 
+

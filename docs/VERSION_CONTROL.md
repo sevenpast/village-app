@@ -146,3 +146,4 @@ Die Migration erstellt:
 - [ ] Versionshistorie-Graph (Visualisierung)
 - [ ] Bulk-Version-Management
 
+

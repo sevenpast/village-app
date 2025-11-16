@@ -114,3 +114,4 @@ COMMENT ON TABLE public.bundle_documents IS 'Junction table linking bundles to t
 COMMENT ON COLUMN public.document_bundles.bundle_name IS 'User-defined name for the bundle';
 COMMENT ON COLUMN public.document_bundles.description IS 'Optional description of the bundle';
 
+

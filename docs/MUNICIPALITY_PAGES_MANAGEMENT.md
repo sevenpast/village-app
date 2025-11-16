@@ -121,3 +121,4 @@ WHERE gemeinde_name IN ('Zürich', 'Genf', ...);
 
 
 
+

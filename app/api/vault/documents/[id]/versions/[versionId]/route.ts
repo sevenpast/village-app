@@ -63,10 +63,30 @@ export async function GET(
       )
     }
 
-    // Verify that the user owns either the version's document or the linked document
-    const versionDocumentId = version.document_id
-    const linkedDocumentId = version.metadata?.new_document_id || version.metadata?.parent_document_id
+    // Type assertion for version
+    const versionData = version as {
+      id: string
+      version_number: number
+      parent_version_id: string | null
+      is_current: boolean
+      uploaded_by: string
+      uploaded_at: string
+      change_summary: string | null
+      metadata: {
+        new_document_id?: string
+        parent_document_id?: string
+        [key: string]: any
+      } | null
+      document_id: string
+    }
+
+    // Determine which document this version represents
+    // Version 1: document_id is the parent document
+    // Version 2+: metadata.new_document_id is the child document
+    const versionDocumentId = versionData.metadata?.new_document_id || versionData.document_id
+    const linkedDocumentId = versionData.metadata?.new_document_id || versionData.metadata?.parent_document_id
     
+    // Verify that the user owns the document
     const { data: versionDoc } = await supabase
       .from('documents')
       .select('id, user_id')
@@ -75,8 +95,8 @@ export async function GET(
       .single()
 
     if (!versionDoc) {
-      // Check if linked document belongs to user
-      if (linkedDocumentId) {
+      // Check if linked document belongs to user (fallback)
+      if (linkedDocumentId && linkedDocumentId !== versionDocumentId) {
         const { data: linkedDoc } = await supabase
           .from('documents')
           .select('id, user_id')
@@ -97,17 +117,55 @@ export async function GET(
         )
       }
     }
+    
+    // Get the actual document to retrieve download URL
+    const { data: versionDocument, error: docError } = await supabase
+      .from('documents')
+      .select('id, file_name, mime_type, file_size, storage_path')
+      .eq('id', versionDocumentId)
+      .eq('user_id', user.id)
+      .single()
+
+    if (docError || !versionDocument) {
+      return NextResponse.json(
+        { error: 'Document for this version not found' },
+        { status: 404 }
+      )
+    }
+
+    // Type assertion for document
+    const documentData = versionDocument as {
+      id: string
+      file_name: string
+      mime_type: string | null
+      file_size: number
+      storage_path: string
+    }
+
+    // Generate download URL (signed URL for private bucket)
+    const { data: signedUrlData, error: urlError } = await supabase.storage
+      .from('documents')
+      .createSignedUrl(documentData.storage_path, 3600) // 1 hour expiry
+
+    const downloadUrl = signedUrlData?.signedUrl || null
 
     const formattedVersion = {
-      id: version.id,
-      version_number: version.version_number,
-      parent_version_id: version.parent_version_id,
-      is_current: version.is_current,
-      uploaded_by: version.uploaded_by,
+      id: versionData.id,
+      version_number: versionData.version_number,
+      parent_version_id: versionData.parent_version_id,
+      is_current: versionData.is_current,
+      uploaded_by: versionData.uploaded_by,
       uploaded_by_name: null, // Can be enhanced later with profiles join if needed
-      uploaded_at: version.uploaded_at,
-      change_summary: version.change_summary,
-      metadata: version.metadata,
+      uploaded_at: versionData.uploaded_at,
+      change_summary: versionData.change_summary,
+      metadata: versionData.metadata,
+      document: {
+        id: documentData.id,
+        file_name: documentData.file_name,
+        mime_type: documentData.mime_type,
+        file_size: documentData.file_size,
+        download_url: downloadUrl,
+      },
     }
 
     return NextResponse.json({
@@ -178,12 +236,12 @@ export async function POST(
     }
 
     // Set this version as current (trigger will unset others)
-    const { data: updatedVersion, error: updateError } = await supabase
+    const { data: updatedVersion, error: updateError } = (await supabase
       .from('document_versions')
-      .update({ is_current: true })
+      .update({ is_current: true } as never)
       .eq('id', versionId)
       .select()
-      .single()
+      .single()) as { data: any; error: any }
 
     if (updateError) {
       console.error('❌ Error restoring version:', updateError)

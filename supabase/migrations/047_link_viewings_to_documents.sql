@@ -66,3 +66,4 @@ COMMENT ON TABLE public.viewing_documents IS 'Junction table linking apartment v
 COMMENT ON COLUMN public.viewing_documents.viewing_id IS 'Reference to the apartment viewing';
 COMMENT ON COLUMN public.viewing_documents.document_id IS 'Reference to the document from the vault';
 
+

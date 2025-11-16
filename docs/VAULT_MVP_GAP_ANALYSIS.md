@@ -232,3 +232,4 @@ Die fehlenden 20% sind:
 
 **Empfehlung:** Implementiere Bundling + Viewing Connection jetzt, dann hast du 95% des MVP. Attachment to Email kommt mit Phase 2 (Compose & Send).
 
+

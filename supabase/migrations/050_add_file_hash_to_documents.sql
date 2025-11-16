@@ -10,3 +10,4 @@ CREATE INDEX IF NOT EXISTS idx_documents_file_hash ON public.documents(file_hash
 -- Add comment
 COMMENT ON COLUMN public.documents.file_hash IS 'SHA256 hash of the file content for duplicate detection';
 
+
