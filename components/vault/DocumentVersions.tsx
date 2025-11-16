@@ -9,6 +9,7 @@ interface DocumentVersion {
   version_number: number
   parent_version_id: string | null
   is_current: boolean
+  is_viewing?: boolean
   uploaded_by: string
   uploaded_by_name: string | null
   uploaded_at: string
@@ -170,9 +171,8 @@ export default function DocumentVersions({
           ) : (
             <div className="space-y-4">
               {versions.map((version, index) => {
-                // Check if this is the version being viewed
-                const isViewing = version.document_id === documentId || 
-                                  version.metadata?.new_document_id === documentId
+                // Use is_viewing flag from API
+                const isViewing = version.is_viewing === true
                 
                 return (
                 <div

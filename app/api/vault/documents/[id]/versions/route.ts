@@ -256,18 +256,27 @@ export async function GET(
       }
     }
     
-    const formattedVersions = Array.from(versionMap.values()).map((version: any) => ({
-      id: version.id,
-      document_id: version.document_id,
-      version_number: version.version_number,
-      parent_version_id: version.parent_version_id,
-      is_current: version.is_current,
-      uploaded_by: version.uploaded_by,
-      uploaded_by_name: null, // Can be enhanced later with profiles join if needed
-      uploaded_at: version.uploaded_at,
-      change_summary: version.change_summary,
-      metadata: version.metadata,
-    }))
+    const formattedVersions = Array.from(versionMap.values()).map((version: any) => {
+      // Check if this version represents the document being viewed
+      // If metadata.new_document_id matches documentId, this version represents the new document
+      // If document_id matches documentId and there's no new_document_id, this is the original document
+      const isViewing = version.metadata?.new_document_id === documentId ||
+                        (version.document_id === documentId && !version.metadata?.new_document_id)
+      
+      return {
+        id: version.id,
+        document_id: version.document_id,
+        version_number: version.version_number,
+        parent_version_id: version.parent_version_id,
+        is_current: version.is_current,
+        is_viewing: isViewing,
+        uploaded_by: version.uploaded_by,
+        uploaded_by_name: null, // Can be enhanced later with profiles join if needed
+        uploaded_at: version.uploaded_at,
+        change_summary: version.change_summary,
+        metadata: version.metadata,
+      }
+    })
     
     // Sort by version number ascending (1, 2, 3...) so oldest is first
     formattedVersions.sort((a, b) => a.version_number - b.version_number)
