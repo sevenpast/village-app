@@ -108,46 +108,49 @@ export async function GET(request: NextRequest) {
 
             // Get version info for this document
             // Clean implementation:
-            // 1. Check if document is parent (has versions with document_id = doc.id)
-            // 2. If parent: version_number = 1, version_count = number of versions
-            // 3. If child: find version entry that references this document, get version_number from there
+            // 1. First check if this is a child document (referenced as new_document_id)
+            // 2. If child: get version_number from that entry, count parent's versions
+            // 3. If not child: check if it's a parent (has versions where document_id = doc.id AND no parent_document_id in metadata)
             let versionCount = 0
             let versionNumber: number | null = null
             
             try {
-              // Check if this document is a parent (has versions directly linked)
-              const { data: parentVersions, error: parentError } = await supabase
+              // Step 1: Check if this document is a child (referenced as new_document_id)
+              const { data: childVersion, error: childError } = await supabase
                 .from('document_versions')
-                .select('version_number')
-                .eq('document_id', doc.id)
+                .select('version_number, document_id')
+                .eq('metadata->>new_document_id', doc.id)
+                .limit(1)
+                .single()
               
-              if (!parentError && parentVersions && parentVersions.length > 0) {
-                // This is the parent document = Version 1
-                versionNumber = 1
-                versionCount = parentVersions.length
-              } else {
-                // This might be a child document
-                // Find the version entry that references this document as new_document_id
-                const { data: childVersion, error: childError } = await supabase
-                  .from('document_versions')
-                  .select('version_number, document_id')
-                  .eq('metadata->>new_document_id', doc.id)
-                  .limit(1)
-                  .single()
+              if (!childError && childVersion) {
+                // This is a child document
+                versionNumber = childVersion.version_number
                 
-                if (!childError && childVersion) {
-                  // Found: this document is a child version
-                  versionNumber = childVersion.version_number
-                  
-                  // Count total versions for the parent document
-                  const { count, error: countError } = await supabase
-                    .from('document_versions')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('document_id', childVersion.document_id)
-                  
-                  if (!countError && typeof count === 'number') {
-                    versionCount = count
-                  }
+                // Count total versions for the parent document
+                // Only count versions where document_id = parentDocumentId (not child versions)
+                const { count, error: countError } = await supabase
+                  .from('document_versions')
+                  .select('*', { count: 'exact', head: true })
+                  .eq('document_id', childVersion.document_id)
+                
+                if (!countError && typeof count === 'number') {
+                  versionCount = count
+                }
+              } else {
+                // Step 2: This might be a parent document
+                // Get versions where document_id = doc.id
+                // But exclude child version entries (those with parent_document_id in metadata)
+                const { data: parentVersions, error: parentError } = await supabase
+                  .from('document_versions')
+                  .select('version_number, metadata')
+                  .eq('document_id', doc.id)
+                  .is('metadata->>parent_document_id', null)
+              
+                if (!parentError && parentVersions && parentVersions.length > 0) {
+                  // This is the parent document = Version 1
+                  versionNumber = 1
+                  versionCount = parentVersions.length
                 }
               }
             } catch (error) {
