@@ -520,7 +520,7 @@ function VersionComparison({
             </div>
           ) : version1 && version2 ? (
             <>
-              {activeTab === 'preview' ? (
+              {activeTab === 'preview' && (
                 <div className="grid grid-cols-2 gap-6 h-full">
                   {/* Version 1 */}
                   <div className="flex flex-col">
@@ -652,7 +652,8 @@ function VersionComparison({
                     </div>
                   </div>
                 </div>
-              ) : (
+              )}
+              {activeTab === 'fields' && (
                 <div className="space-y-4">
                   {changes.length > 0 ? (
                     <>
@@ -724,7 +725,8 @@ function VersionComparison({
                     </div>
                   )}
                 </div>
-              ) : activeTab === 'text' ? (
+              )}
+              {activeTab === 'text' && (
                 <div className="space-y-4">
                   {(() => {
                     const textDiff = compareText(
@@ -826,7 +828,7 @@ function VersionComparison({
                     )
                   })()}
                 </div>
-              ) : null}
+              )}
             </>
           ) : (
             <div className="text-center py-12 text-gray-500">
