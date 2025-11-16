@@ -353,8 +353,25 @@ function VersionComparison({
         const data1 = await res1.json()
         const data2 = await res2.json()
         console.log(`✅ Loaded versions:`, { version1: data1.version, version2: data2.version })
-        setVersion1(data1.version)
-        setVersion2(data2.version)
+        
+        // Ensure version1 is the older version (lower version_number) and version2 is the newer version
+        // This ensures that deletions are shown on the left (old) and insertions on the right (new)
+        const v1 = data1.version
+        const v2 = data2.version
+        const version1Number = v1.version_number || 0
+        const version2Number = v2.version_number || 0
+        
+        if (version1Number <= version2Number) {
+          // version1 is older or same, version2 is newer - correct order
+          setVersion1(v1)
+          setVersion2(v2)
+          console.log(`📊 Version order: Version ${version1Number} (old) → Version ${version2Number} (new)`)
+        } else {
+          // version1 is newer, version2 is older - swap them
+          setVersion1(v2)
+          setVersion2(v1)
+          console.log(`📊 Version order swapped: Version ${version2Number} (old) → Version ${version1Number} (new)`)
+        }
       } else {
         const error1 = await res1.json().catch(() => ({ error: `HTTP ${res1.status}: ${res1.statusText}` }))
         const error2 = await res2.json().catch(() => ({ error: `HTTP ${res2.status}: ${res2.statusText}` }))
