@@ -19,7 +19,8 @@ interface Document {
   thumbnail_url: string | null
   created_at: string
   download_url?: string
-  version_count?: number // Number of versions for this document
+  version_count?: number // Total number of versions in the chain
+  version_number?: number | null // This document's version number (1, 2, 3...)
 }
 
 interface DocumentVaultProps {
@@ -911,9 +912,9 @@ export default function DocumentVault({ userId }: DocumentVaultProps) {
                   <h3 className="font-semibold text-gray-900 truncate flex-1">
                     {doc.file_name}
                   </h3>
-                  {typeof doc.version_count === 'number' && doc.version_count > 0 && (
+                  {typeof doc.version_number === 'number' && doc.version_number > 0 && (
                     <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700 font-medium">
-                      {getOrdinalSuffix(doc.version_count)} version
+                      {getOrdinalSuffix(doc.version_number)} version
                     </span>
                   )}
                 </div>

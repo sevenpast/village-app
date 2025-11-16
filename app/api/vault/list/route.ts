@@ -106,34 +106,36 @@ export async function GET(request: NextRequest) {
               .from('documents')
               .getPublicUrl(doc.storage_path)
 
-            // Get version count for this document
-            // Find the parent document (the original document in the version chain)
-            // Both parent and child documents should show the same version count
+            // Get version info for this document
+            // Need both: version_count (total versions) and version_number (this document's version)
             let versionCount = 0
+            let versionNumber: number | null = null
             try {
               // First, check if this document has versions directly linked to it
-              // (meaning it's the parent document)
-              const { count: directCount, error: directError } = await supabase
+              // (meaning it's the parent document = Version 1)
+              const { data: directVersions, error: directError } = await supabase
                 .from('document_versions')
-                .select('*', { count: 'exact', head: true })
+                .select('*')
                 .eq('document_id', doc.id)
               
-              if (!directError && typeof directCount === 'number' && directCount > 0) {
-                // This document is the parent, use its version count
-                versionCount = directCount
+              if (!directError && directVersions && directVersions.length > 0) {
+                // This document is the parent = Version 1
+                versionCount = directVersions.length
+                versionNumber = 1
               } else {
-                // This document might be a child (new version)
+                // This document might be a child (Version 2+)
                 // Check if it's referenced in metadata as a new_document_id
                 const { data: versionWithNewDoc } = await supabase
                   .from('document_versions')
-                  .select('metadata, document_id')
+                  .select('version_number, metadata, document_id')
                   .eq('metadata->>new_document_id', doc.id)
                   .limit(1)
                   .single()
                 
                 if (versionWithNewDoc?.document_id) {
-                  // Found parent document ID
+                  // Found parent document ID and this document's version number
                   const parentDocumentId = versionWithNewDoc.document_id
+                  versionNumber = versionWithNewDoc.version_number
                   
                   // Count versions for the parent document
                   const { count, error: versionError } = await supabase
@@ -145,17 +147,19 @@ export async function GET(request: NextRequest) {
                     versionCount = count
                   }
                 }
-                // If no parent found, versionCount remains 0
+                // If no parent found, versionCount and versionNumber remain 0/null
               }
             } catch (versionCountError) {
-              console.warn(`⚠️ Failed to get version count for document ${doc.id}:`, versionCountError)
+              console.warn(`⚠️ Failed to get version info for document ${doc.id}:`, versionCountError)
               versionCount = 0
+              versionNumber = null
             }
 
             return {
               ...doc,
               download_url: publicUrl,
               version_count: versionCount,
+              version_number: versionNumber,
             }
           } catch (urlError) {
             console.warn(`⚠️ Failed to generate URL for document ${doc.id}:`, urlError)
@@ -163,6 +167,7 @@ export async function GET(request: NextRequest) {
               ...doc,
               download_url: null,
               version_count: 0,
+              version_number: null,
             }
           }
         })
