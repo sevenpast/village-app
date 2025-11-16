@@ -5,6 +5,7 @@ import { Clock, RotateCcw, GitBranch, X } from 'lucide-react'
 
 interface DocumentVersion {
   id: string
+  document_id: string
   version_number: number
   parent_version_id: string | null
   is_current: boolean
@@ -17,6 +18,8 @@ interface DocumentVersion {
     mime_type?: string
     file_size?: number
     extracted_fields?: Record<string, any>
+    new_document_id?: string
+    parent_document_id?: string
   } | null
 }
 
@@ -166,12 +169,19 @@ export default function DocumentVersions({
             </div>
           ) : (
             <div className="space-y-4">
-              {versions.map((version, index) => (
+              {versions.map((version, index) => {
+                // Check if this is the version being viewed
+                const isViewing = version.document_id === documentId || 
+                                  version.metadata?.new_document_id === documentId
+                
+                return (
                 <div
                   key={version.id}
                   className={`p-4 border rounded-lg ${
                     version.is_current
                       ? 'border-green-500 bg-green-50'
+                      : isViewing
+                      ? 'border-blue-500 bg-blue-50'
                       : 'border-gray-200 bg-white'
                   }`}
                 >
@@ -184,6 +194,11 @@ export default function DocumentVersions({
                         {version.is_current && (
                           <span className="px-2 py-1 text-xs rounded-full bg-green-500 text-white">
                             Current
+                          </span>
+                        )}
+                        {isViewing && (
+                          <span className="px-2 py-1 text-xs rounded-full bg-blue-500 text-white">
+                            Viewing
                           </span>
                         )}
                       </div>
@@ -235,7 +250,8 @@ export default function DocumentVersions({
                     </div>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
