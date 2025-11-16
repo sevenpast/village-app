@@ -40,28 +40,30 @@ CREATE POLICY "Users can insert own document versions"
 ON public.document_versions FOR INSERT
 TO authenticated
 WITH CHECK (
-  -- Check if user owns the document_id (parent document)
-  EXISTS (
-    SELECT 1 FROM public.documents
-    WHERE documents.id = document_versions.document_id
-    AND documents.user_id = auth.uid()
+  (
+    -- Check if user owns the document_id (parent document)
+    EXISTS (
+      SELECT 1 FROM public.documents
+      WHERE documents.id = document_versions.document_id
+      AND documents.user_id = auth.uid()
+    )
+    OR
+    -- Check if user owns a child document referenced in metadata.new_document_id
+    EXISTS (
+      SELECT 1 FROM public.documents
+      WHERE documents.id::text = document_versions.metadata->>'new_document_id'
+      AND documents.user_id = auth.uid()
+    )
+    OR
+    -- Check if user owns a parent document referenced in metadata.parent_document_id
+    EXISTS (
+      SELECT 1 FROM public.documents
+      WHERE documents.id::text = document_versions.metadata->>'parent_document_id'
+      AND documents.user_id = auth.uid()
+    )
   )
-  OR
-  -- Check if user owns a child document referenced in metadata.new_document_id
-  EXISTS (
-    SELECT 1 FROM public.documents
-    WHERE documents.id::text = document_versions.metadata->>'new_document_id'
-    AND documents.user_id = auth.uid()
-  )
-  OR
-  -- Check if user owns a parent document referenced in metadata.parent_document_id
-  EXISTS (
-    SELECT 1 FROM public.documents
-    WHERE documents.id::text = document_versions.metadata->>'parent_document_id'
-    AND documents.user_id = auth.uid()
-  )
-)
-AND uploaded_by = auth.uid();
+  AND uploaded_by = auth.uid()
+);
 
 -- Policy: Users can update versions for their own documents
 CREATE POLICY "Users can update own document versions"
