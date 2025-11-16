@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Clock, RotateCcw, GitBranch, X } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Clock, RotateCcw, GitBranch, X, ChevronDown } from 'lucide-react'
 
 interface DocumentVersion {
   id: string
@@ -43,12 +43,30 @@ export default function DocumentVersions({
   const [loading, setLoading] = useState(true)
   const [restoring, setRestoring] = useState<string | null>(null)
   const [comparingVersions, setComparingVersions] = useState<[string, string] | null>(null)
+  const [compareMenuOpen, setCompareMenuOpen] = useState<string | null>(null) // versionId for which menu is open
+  const compareMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (isOpen && documentId) {
       loadVersions()
     }
   }, [isOpen, documentId])
+
+  // Close compare menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (compareMenuRef.current && !compareMenuRef.current.contains(event.target as Node)) {
+        setCompareMenuOpen(null)
+      }
+    }
+
+    if (compareMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside)
+      }
+    }
+  }, [compareMenuOpen])
 
   const loadVersions = async () => {
     setLoading(true)
@@ -107,6 +125,11 @@ export default function DocumentVersions({
 
   const handleCompareVersions = (versionId1: string, versionId2: string) => {
     setComparingVersions([versionId1, versionId2])
+    setCompareMenuOpen(null) // Close menu after selection
+  }
+
+  const handleCompareClick = (versionId: string) => {
+    setCompareMenuOpen(compareMenuOpen === versionId ? null : versionId)
   }
 
   const formatDate = (dateString: string) => {
@@ -146,27 +169,14 @@ export default function DocumentVersions({
             </h2>
             <p className="text-sm text-gray-600 mt-1">{documentName}</p>
           </div>
-          <div className="flex items-center gap-3">
-            {versions.length > 1 && (
-              <button
-                onClick={() => {
-                  // Compare oldest (first) with newest (last)
-                  handleCompareVersions(versions[0].id, versions[versions.length - 1].id)
-                }}
-                className="px-4 py-2 text-sm rounded border transition-colors hover:bg-gray-50"
-                style={{ borderColor: '#2D5016', color: '#2D5016' }}
-                title="Compare oldest with newest version"
-              >
-                Compare Versions
-              </button>
-            )}
-            <button
-              onClick={onClose}
-              className="text-gray-500 hover:text-gray-700 transition-colors"
-            >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            <X className="w-6 h-6" />
+          </button>
+        </div>
         </div>
 
         {/* Content */}
@@ -230,7 +240,7 @@ export default function DocumentVersions({
                       </div>
                     </div>
 
-                    <div className="flex gap-2 ml-4">
+                    <div className="flex gap-2 ml-4 relative">
                       {!version.is_current && (
                         <button
                           onClick={() => handleRestoreVersion(version.id)}
@@ -244,28 +254,36 @@ export default function DocumentVersions({
                         </button>
                       )}
                       {versions.length > 1 && (
-                        <>
-                          {index > 0 && (
-                            <button
-                              onClick={() => handleCompareVersions(versions[index - 1].id, version.id)}
-                              className="px-3 py-2 text-sm rounded border transition-colors hover:bg-gray-50"
-                              style={{ borderColor: '#2D5016', color: '#2D5016' }}
-                              title={`Compare Version ${versions[index - 1].version_number} with Version ${version.version_number}`}
-                            >
-                              Compare with Previous
-                            </button>
+                        <div className="relative" ref={compareMenuOpen === version.id ? compareMenuRef : null}>
+                          <button
+                            onClick={() => handleCompareClick(version.id)}
+                            className="px-3 py-2 text-sm rounded border transition-colors hover:bg-gray-50 flex items-center gap-1"
+                            style={{ borderColor: '#2D5016', color: '#2D5016' }}
+                            title="Compare this version with another version"
+                          >
+                            Compare with
+                            <ChevronDown className={`w-4 h-4 transition-transform ${compareMenuOpen === version.id ? 'rotate-180' : ''}`} />
+                          </button>
+                          {compareMenuOpen === version.id && (
+                            <div className="absolute right-0 mt-1 bg-white border rounded-lg shadow-lg z-10 min-w-[200px]" style={{ borderColor: '#E5E7EB' }}>
+                              <div className="p-2">
+                                <div className="text-xs font-semibold text-gray-500 mb-2 px-2">Compare Version {version.version_number} with:</div>
+                                {versions
+                                  .filter(v => v.id !== version.id)
+                                  .map(otherVersion => (
+                                    <button
+                                      key={otherVersion.id}
+                                      onClick={() => handleCompareVersions(version.id, otherVersion.id)}
+                                      className="w-full text-left px-3 py-2 text-sm rounded hover:bg-gray-50 transition-colors"
+                                      style={{ color: '#2D5016' }}
+                                    >
+                                      Version {otherVersion.version_number}
+                                    </button>
+                                  ))}
+                              </div>
+                            </div>
                           )}
-                          {index < versions.length - 1 && (
-                            <button
-                              onClick={() => handleCompareVersions(version.id, versions[index + 1].id)}
-                              className="px-3 py-2 text-sm rounded border transition-colors hover:bg-gray-50"
-                              style={{ borderColor: '#2D5016', color: '#2D5016' }}
-                              title={`Compare Version ${version.version_number} with Version ${versions[index + 1].version_number}`}
-                            >
-                              Compare with Next
-                            </button>
-                          )}
-                        </>
+                        </div>
                       )}
                     </div>
                   </div>
