@@ -178,10 +178,8 @@ export default function DocumentVersions({
                 <div
                   key={version.id}
                   className={`p-4 border rounded-lg ${
-                    version.is_current
+                    isViewing
                       ? 'border-green-500 bg-green-50'
-                      : isViewing
-                      ? 'border-blue-500 bg-blue-50'
                       : 'border-gray-200 bg-white'
                   }`}
                 >
@@ -191,14 +189,9 @@ export default function DocumentVersions({
                         <span className="font-semibold text-lg" style={{ color: '#2D5016' }}>
                           Version {version.version_number}
                         </span>
-                        {version.is_current && (
+                        {isViewing && (
                           <span className="px-2 py-1 text-xs rounded-full bg-green-500 text-white">
                             Current
-                          </span>
-                        )}
-                        {isViewing && (
-                          <span className="px-2 py-1 text-xs rounded-full bg-blue-500 text-white">
-                            Viewing
                           </span>
                         )}
                       </div>
