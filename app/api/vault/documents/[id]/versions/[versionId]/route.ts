@@ -37,8 +37,7 @@ export async function GET(
       )
     }
 
-    // Get specific version
-    // Check both direct document_id match and linked versions (via metadata)
+    // Get specific version by ID (versionId is unique)
     const { data: version, error } = await supabase
       .from('document_versions')
       .select(`
@@ -53,7 +52,6 @@ export async function GET(
         document_id
       `)
       .eq('id', versionId)
-      .or(`document_id.eq.${documentId},metadata->>new_document_id.eq.${documentId},metadata->>parent_document_id.eq.${documentId}`)
       .single()
 
     if (error || !version) {
@@ -80,42 +78,40 @@ export async function GET(
       document_id: string
     }
 
+    // Verify that the user owns at least one of the documents linked to this version
+    // Check: document_id, metadata.new_document_id, metadata.parent_document_id
+    const documentIdsToCheck = [
+      versionData.document_id,
+      versionData.metadata?.new_document_id,
+      versionData.metadata?.parent_document_id,
+    ].filter(Boolean) as string[]
+
+    const { data: userDocuments } = await supabase
+      .from('documents')
+      .select('id')
+      .in('id', documentIdsToCheck)
+      .eq('user_id', user.id)
+
+    if (!userDocuments || userDocuments.length === 0) {
+      return NextResponse.json(
+        { error: 'Version not found or access denied' },
+        { status: 404 }
+      )
+    }
+
     // Determine which document this version represents
     // Version 1: document_id is the parent document
     // Version 2+: metadata.new_document_id is the child document
     const versionDocumentId = versionData.metadata?.new_document_id || versionData.document_id
-    const linkedDocumentId = versionData.metadata?.new_document_id || versionData.metadata?.parent_document_id
     
-    // Verify that the user owns the document
-    const { data: versionDoc } = await supabase
-      .from('documents')
-      .select('id, user_id')
-      .eq('id', versionDocumentId)
-      .eq('user_id', user.id)
-      .single()
-
-    if (!versionDoc) {
-      // Check if linked document belongs to user (fallback)
-      if (linkedDocumentId && linkedDocumentId !== versionDocumentId) {
-        const { data: linkedDoc } = await supabase
-          .from('documents')
-          .select('id, user_id')
-          .eq('id', linkedDocumentId)
-          .eq('user_id', user.id)
-          .single()
-        
-        if (!linkedDoc) {
-          return NextResponse.json(
-            { error: 'Version not found or access denied' },
-            { status: 404 }
-          )
-        }
-      } else {
-        return NextResponse.json(
-          { error: 'Version not found or access denied' },
-          { status: 404 }
-        )
-      }
+    // Verify that versionDocumentId is owned by the user
+    const userDocs = userDocuments as { id: string }[]
+    const userOwnsVersionDoc = userDocs.some(doc => doc.id === versionDocumentId)
+    if (!userOwnsVersionDoc) {
+      return NextResponse.json(
+        { error: 'Version not found or access denied' },
+        { status: 404 }
+      )
     }
     
     // Get the actual document to retrieve download URL
